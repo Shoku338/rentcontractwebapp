@@ -1,14 +1,9 @@
 "use client";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 export default function Home() {
   const router = useRouter();
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    // You can add authentication logic here
-    router.push("/dashboard");
-  };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#e0f2fe] font-sans">
@@ -17,7 +12,7 @@ export default function Home() {
         <div className="flex-1 p-8 flex flex-col justify-center">
           <h2 className="text-2xl font-bold text-blue-900 mb-6 text-center">Saguan Sap Mansion</h2>
           <h3 className="text-lg font-semibold mb-6 text-blue-800 text-center">เข้าสู่ระบบ</h3>
-          <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
+          <div className="flex flex-col gap-4" >
             <input
               type="text"
               placeholder="เบอร์โทรศัพท์"
@@ -28,17 +23,16 @@ export default function Home() {
               placeholder="รหัสผ่าน"
               className="w-full px-4 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
-            <button
-              type="submit"
-              className="w-2/3 bg-blue-900 hover:bg-blue-800 text-white font-semibold py-2 rounded-full mt-2 mx-auto transition "
+            <Link href="/dashboard"
+              className="w-2/3 bg-blue-900 hover:bg-blue-800 text-white font-semibold py-2 rounded-full mt-2 mx-auto transition text-center"
             >
               LOG IN
-            </button>
-          </form>
+            </Link>
+          </div>
         </div>
         {/* Right: Logo */}
-        <div className="flex-1 bg-[#e0f2fe] flex flex-col items-center justify-center">
-          <div className="h-full aspect-square bg-blue-900 rounded my-5" />
+        <div className="flex-1  bg-blue-300 flex flex-col items-center justify-center">
+          <img src="/file.svg" alt="Logo" className="h-full aspect-square rounded my-5" />
           {/* Optional: Add a tagline or image below the logo */}
         </div>
       </div>
