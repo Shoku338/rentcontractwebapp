@@ -32,7 +32,7 @@ export default function Home() {
         </div>
         {/* Right: Logo */}
         <div className="flex-1  bg-blue-300 flex flex-col items-center justify-center">
-          <img src="/file.svg" alt="Logo" className="h-full aspect-square rounded my-5" />
+          <img src="/HomePage.jpg" alt="Logo" className="h-full aspect-square rounded my-5" />
           {/* Optional: Add a tagline or image below the logo */}
         </div>
       </div>

@@ -1,9 +1,37 @@
+"use client";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
+
+const tools = [
+  { label: "ผังห้อง", href: "/dashboard", icon: "🏢" },
+  { label: "จดมิเตอร์", href: "/meter", icon: "⏱️" },
+  { label: "บิลค่าเช่า", href: "/rentbill", icon: "📄" },
+  { label: "จ่ายบิล", href: "/paybill", icon: "💸" },
+  { label: "สรุปการแจ้ง", href: "/report", icon: "📢" },
+  { label: "รายงานสรุป", href: "/summary", icon: "📋" },
+  { label: "ผู้เช่า", href: "/users", icon: "👥" },
+];
 
 export default function Toolbar() {
+  const pathname = usePathname();
+
   return (
-    <nav className="bg-gray-800 text-white px-6 py-3 flex items-center">
-      
+    <nav className="bg-gray-800 px-2 py-2 flex gap-2 overflow-x-auto justify-center">
+      {tools.map((tool) => {
+        const selected = pathname === tool.href;
+        return (
+          <Link
+            key={tool.href}
+            href={tool.href}
+            className={`flex flex-col items-center justify-center px-3 py-2 rounded transition
+              ${selected ? "bg-blue-200 text-blue-900 font-bold" : "bg-gray-700 text-blue-200 hover:bg-gray-600"}
+            `}
+          >
+            <span className="text-2xl mb-1">{tool.icon}</span>
+            <span className="text-xs">{tool.label}</span>
+          </Link>
+        );
+      })}
     </nav>
   );
 }
