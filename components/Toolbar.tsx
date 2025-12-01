@@ -8,8 +8,6 @@ const tools = [
   { label: "บิลค่าเช่า", href: "/rentbill", icon: "📄" },
   { label: "จ่ายบิล", href: "/paybill", icon: "💸" },
   { label: "สรุปการแจ้ง", href: "/report", icon: "📢" },
-  { label: "รายงานสรุป", href: "/summary", icon: "📋" },
-  { label: "ผู้เช่า", href: "/users", icon: "👥" },
 ];
 
 export default function Toolbar() {
