@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 type Room = {
   RoomID: number;
@@ -12,32 +12,86 @@ type Room = {
 export default function Dashboard() {
   const [selectedRoom, setSelectedRoom] = useState<Room | null>(null);
   const [activeTab, setActiveTab] = useState("details");
+  const [rooms, setRooms] = useState<Room[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  // Mock data — replace with actual data fetch
-  const rooms: Room[] = [
-    { RoomID: 101, RoomName: "101", ContractId: null, RoomStatus: "Available" },
-    { RoomID: 102, RoomName: "102", ContractId: null, RoomStatus: "Available" },
-    { RoomID: 103, RoomName: "103", ContractId: null, RoomStatus: "Available" },
-  ];
+  useEffect(() => {
+    const fetchRooms = async () => {
+      try {
+        const response = await fetch("/api/Room");
+        if (!response.ok) throw new Error("Failed to fetch rooms");
+        const data = await response.json();
+        setRooms(data);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Unknown error");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchRooms();
+  }, []);
+
+  const groupedRooms = rooms.reduce((acc, room) => {
+    // special TA group (111-115)
+    if (room.RoomID >= 111 && room.RoomID <= 115) {
+      acc["TA"] = acc["TA"] ?? [];
+      acc["TA"].push(room);
+      return acc;
+    }
+    // special TB group (121-125)
+    if (room.RoomID >= 121 && room.RoomID <= 125) {
+      acc["TB"] = acc["TB"] ?? [];
+      acc["TB"].push(room);
+      return acc;
+    }
+    // fallback: group by numeric floor derived from RoomID (e.g., 401 -> 4)
+    const floor = String(Math.floor(room.RoomID / 100));
+    acc[floor] = acc[floor] ?? [];
+    acc[floor].push(room);
+    return acc;
+  }, {} as Record<string, Room[]>);
+
+  // Custom ordering: show TA then TB, then numeric floors ascending
+  const orderedGroupKeys = Object.keys(groupedRooms).sort((a, b) => {
+    const priority: Record<string, number> = { TA: 0, TB: 1 };
+    const aIsPriority = a in priority;
+    const bIsPriority = b in priority;
+    if (aIsPriority && bIsPriority) return priority[a] - priority[b];
+    if (aIsPriority) return -1;
+    if (bIsPriority) return 1;
+    // numeric compare for floor keys
+    return Number(a) - Number(b);
+  });
+
+  if (loading) return <div className="p-8">กำลังโหลด...</div>;
+  if (error) return <div className="p-8 text-red-600">เกิดข้อผิดพลาด: {error}</div>;
 
   return (
     <div className="min-h-screen bg-gray-100 p-8">
       {/* Top Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
         <div className="bg-white rounded shadow p-6 flex flex-col items-center">
-          <span className="text-2xl font-bold text-green-600">100%</span>
+          <span className="text-2xl font-bold text-green-600">
+            {Math.round((rooms.filter(r => r.RoomStatus === "Occupied").length / rooms.length) * 100)}%
+          </span>
           <span className="text-gray-600 mt-2">อัตราการเข้าพัก</span>
         </div>
         <div className="bg-white rounded shadow p-6 flex flex-col items-center">
-          <span className="text-2xl font-bold text-yellow-600">0 ห้อง</span>
+          <span className="text-2xl font-bold text-yellow-600">
+            {rooms.filter(r => r.RoomStatus === "Booked").length} ห้อง
+          </span>
           <span className="text-gray-600 mt-2">ห้องจอง</span>
         </div>
         <div className="bg-white rounded shadow p-6 flex flex-col items-center">
-          <span className="text-2xl font-bold text-red-600">15 ห้อง</span>
+          <span className="text-2xl font-bold text-red-600">0 ห้อง</span>
           <span className="text-gray-600 mt-2">ค้างชำระ</span>
         </div>
         <div className="bg-white rounded shadow p-6 flex flex-col items-center">
-          <span className="text-2xl font-bold text-purple-600">0 ห้อง</span>
+          <span className="text-2xl font-bold text-purple-600">
+            {rooms.filter(r => r.RoomStatus === "Available").length} ห้อง
+          </span>
           <span className="text-gray-600 mt-2">ห้องว่าง</span>
         </div>
       </div>
@@ -52,7 +106,7 @@ export default function Dashboard() {
         </button>
       </div>
 
-      {/* Building List */}
+      {/* Building List - Group by Floor */}
       <div className="space-y-8">
         <div className="bg-white rounded shadow p-6">
           <div className="flex items-center justify-between mb-4">
@@ -62,31 +116,44 @@ export default function Dashboard() {
             </button>
           </div>
 
-          {/* Floor 1 */}
-          <div className="mb-8">
-            <h2 className="text-xl font-bold mb-4">ชั้นที่ 1</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-3 md:grid-cols-5 gap-6">
-              {rooms.map((room) => (
-                <button
-                  key={room.RoomID}
-                  onClick={() => setSelectedRoom(room)}
-                  className="flex flex-col items-center cursor-pointer hover:scale-105 transition"
-                >
-                  <div className="bg-orange-300 rounded-lg w-24 h-24 flex items-center justify-center mb-2">
-                    <span className="text-white text-3xl font-bold">💰</span>
-                  </div>
-                  <span className="font-bold">{room.RoomID}</span>
-                </button>
-              ))}
-            </div>
-          </div>
+          {/* Floors */}
+          {Object.entries(groupedRooms)
+            .sort(([floorA], [floorB]) => Number(floorA) - Number(floorB))
+            .map(([floor, floorRooms]) => (
+              <div key={floor} className="mb-8">
+                <h2 className="text-xl font-bold mb-4">ชั้นที่ {floor}</h2>
+                <div className="grid grid-cols-1 sm:grid-cols-3 md:grid-cols-5 gap-6">
+                  {floorRooms.map((room) => (
+                    <button
+                      key={room.RoomID}
+                      onClick={() => setSelectedRoom(room)}
+                      className="flex flex-col items-center cursor-pointer hover:scale-105 transition"
+                    >
+                      <div
+                        className={`rounded-lg w-24 h-24 flex items-center justify-center mb-2 ${
+                          room.RoomStatus === "Available"
+                            ? "bg-green-300"
+                            : room.RoomStatus === "Unavailable"
+                            ? "bg-red-300"
+                            : "bg-yellow-300"
+                        }`}
+                      >
+                        <span className="text-white text-3xl font-bold">💰</span>
+                      </div>
+                      <span className="font-bold">{room.RoomName}</span>
+                      <span className="text-xs text-gray-500">{room.RoomStatus}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
         </div>
       </div>
 
-       {/* Modal Popup */}
+      {/* Modal Popup */}
       {selectedRoom && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-lg p-8 w-full max-w-2xl max-h-96 overflow-y-auto">
+          <div className="bg-white rounded-lg shadow-lg p-8 w-full max-w-3xl max-h-150 overflow-y-auto">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-2xl font-bold">ห้อง {selectedRoom.RoomID}</h2>
               <button
@@ -98,47 +165,23 @@ export default function Dashboard() {
             </div>
 
             {/* Tabs */}
-            <div className="flex border-b mb-6 gap-4">
-              <button
-                onClick={() => setActiveTab("details")}
-                className={`pb-2 px-4 font-semibold transition ${
-                  activeTab === "details"
-                    ? "border-b-2 border-blue-600 text-blue-600"
-                    : "text-gray-600 hover:text-gray-800"
-                }`}
-              >
-                ข้อมูล
-              </button>
-              <button
-                onClick={() => setActiveTab("tenant")}
-                className={`pb-2 px-4 font-semibold transition ${
-                  activeTab === "tenant"
-                    ? "border-b-2 border-blue-600 text-blue-600"
-                    : "text-gray-600 hover:text-gray-800"
-                }`}
-              >
-                ผู้เช่า
-              </button>
-              <button
-                onClick={() => setActiveTab("payment")}
-                className={`pb-2 px-4 font-semibold transition ${
-                  activeTab === "payment"
-                    ? "border-b-2 border-blue-600 text-blue-600"
-                    : "text-gray-600 hover:text-gray-800"
-                }`}
-              >
-                ชำระเงิน
-              </button>
-              <button
-                onClick={() => setActiveTab("contract")}
-                className={`pb-2 px-4 font-semibold transition ${
-                  activeTab === "contract"
-                    ? "border-b-2 border-blue-600 text-blue-600"
-                    : "text-gray-600 hover:text-gray-800"
-                }`}
-              >
-                สัญญา
-              </button>
+            <div className="flex border-b mb-6 gap-4 overflow-x-auto">
+              {["details", "tenant", "payment", "contract"].map((tab) => (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  className={`pb-2 px-4 font-semibold transition whitespace-nowrap ${
+                    activeTab === tab
+                      ? "border-b-2 border-blue-600 text-blue-600"
+                      : "text-gray-600 hover:text-gray-800"
+                  }`}
+                >
+                  {tab === "details" && "ข้อมูล"}
+                  {tab === "tenant" && "ผู้เช่า"}
+                  {tab === "payment" && "ชำระเงิน"}
+                  {tab === "contract" && "สัญญา"}
+                </button>
+              ))}
             </div>
 
             {/* Tab Content */}
@@ -216,5 +259,4 @@ export default function Dashboard() {
       )}
     </div>
   );
-
-}
+}     
