@@ -1,26 +1,18 @@
-import { createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server';
 
-const createClient = () => {
-  const cookieStore = cookies()
+import { createClient } from '@/lib/supabase/server';
+import { cookies } from 'next/headers';
 
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+export async function GET(req:NextRequest)
+{
+    const cookieStore = await cookies();
+    const supabase = createClient(cookieStore);
+
+    const {data: newestTenant, error} = await supabase. from('tenants').select('*');
+    if(error)
     {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll()
-        },
-        setAll(cookiesToSet) {
-          try {
-            cookieStore.set(cookiesToSet)
-          } catch (error) {
-            console.error('Error setting cookies:', error)
-          }
-        },
-      },
+        console.log('Error fetching newest tenant:', error);
+        return NextResponse.json({error: `Error fetching newest tenant: ${error.message}`}, {status: 500});
     }
-  )
+    return NextResponse.json(newestTenant);
 }
