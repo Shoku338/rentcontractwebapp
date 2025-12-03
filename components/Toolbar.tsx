@@ -7,7 +7,6 @@ const tools = [
   { label: "จดมิเตอร์", href: "/meter", icon: "⏱️" },
   { label: "บิลค่าเช่า", href: "/rentbill", icon: "📄" },
   { label: "จ่ายบิล", href: "/paybill", icon: "💸" },
-  { label: "สรุปการแจ้ง", href: "/report", icon: "📢" },
 ];
 
 export default function Toolbar() {
