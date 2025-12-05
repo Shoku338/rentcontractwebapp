@@ -15,6 +15,49 @@ export default function Dashboard() {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showContractModal, setShowContractModal] = useState(false);
+  const [contractForm, setContractForm] = useState({
+    TenantName: "",
+    TenantSurname: "",
+    Phone: "",
+    StartDate: "",
+    EndDate: "",
+    MonthlyRent: "",
+    ContractStatus: "Active",
+  });
+
+  async function updateRoomStatus(roomId: number, newStatus: string) {
+    // optimistic UI update
+    setRooms(prev => prev.map(r => r.RoomID === roomId ? { ...r, RoomStatus: newStatus } : r));
+    if (selectedRoom && selectedRoom.RoomID === roomId) {
+      setSelectedRoom({ ...selectedRoom, RoomStatus: newStatus });
+    }
+
+    try {
+      const res = await fetch("/api/Room", {
+        method: "PATCH", // or "PUT" depending on your API
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ RoomID: roomId, RoomStatus: newStatus }),
+      });
+
+      if (!res.ok) {
+        throw new Error("Failed to update room status");
+      }
+
+      // optionally read response and reconcile if backend returns canonical record
+      const updated = await res.json();
+      setRooms(prev => prev.map(r => r.RoomID === roomId ? updated : r));
+      if (selectedRoom && selectedRoom.RoomID === roomId) setSelectedRoom(updated);
+    } catch (err) {
+      // rollback optimistic update on error
+      setRooms(prev => prev.map(r => r.RoomID === roomId ? { ...r, RoomStatus: selectedRoom?.RoomStatus ?? r.RoomStatus } : r));
+      if (selectedRoom && selectedRoom.RoomID === roomId) {
+        // keep the previous status in the selectedRoom UI
+        setSelectedRoom(prev => prev ? { ...prev, RoomStatus: prev.RoomStatus } : prev);
+      }
+      alert(err instanceof Error ? err.message : "Update failed");
+    }
+  }
 
   useEffect(() => {
     const fetchRooms = async () => {
@@ -123,27 +166,28 @@ export default function Dashboard() {
               <div key={floor} className="mb-8">
                 <h2 className="text-xl font-bold mb-4">ชั้นที่ {floor}</h2>
                 <div className="grid grid-cols-1 sm:grid-cols-3 md:grid-cols-5 gap-6">
-                  {floorRooms.map((room) => (
-                    <button
-                      key={room.RoomID}
-                      onClick={() => setSelectedRoom(room)}
-                      className="flex flex-col items-center cursor-pointer hover:scale-105 transition"
-                    >
-                      <div
-                        className={`rounded-lg w-24 h-24 flex items-center justify-center mb-2 ${
-                          room.RoomStatus === "Available"
+                  {floorRooms
+                    .sort((a, b) => a.RoomID - b.RoomID)  // Add this line to sort rooms
+                    .map((room) => (
+                      <button
+                        key={room.RoomID}
+                        onClick={() => setSelectedRoom(room)}
+                        className="flex flex-col items-center cursor-pointer hover:scale-105 transition"
+                      >
+                        <div
+                          className={`rounded-lg w-24 h-24 flex items-center justify-center mb-2 ${room.RoomStatus === "Available"
                             ? "bg-green-300"
                             : room.RoomStatus === "Unavailable"
-                            ? "bg-red-300"
-                            : "bg-yellow-300"
-                        }`}
-                      >
-                        <span className="text-white text-3xl font-bold">💰</span>
-                      </div>
-                      <span className="font-bold">{room.RoomName}</span>
-                      <span className="text-xs text-gray-500">{room.RoomStatus}</span>
-                    </button>
-                  ))}
+                              ? "bg-red-300"
+                              : "bg-yellow-300"
+                            }`}
+                        >
+                          <span className="text-white text-3xl font-bold">💰</span>
+                        </div>
+                        <span className="font-bold">{room.RoomName}</span>
+                        <span className="text-xs text-gray-500">{room.RoomStatus}</span>
+                      </button>
+                    ))}
                 </div>
               </div>
             ))}
@@ -152,7 +196,7 @@ export default function Dashboard() {
 
       {/* Modal Popup */}
       {selectedRoom && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-40">
           <div className="bg-white rounded-lg shadow-lg p-8 w-full max-w-3xl max-h-150 overflow-y-auto">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-2xl font-bold">ห้อง {selectedRoom.RoomID}</h2>
@@ -170,11 +214,10 @@ export default function Dashboard() {
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
-                  className={`pb-2 px-4 font-semibold transition whitespace-nowrap ${
-                    activeTab === tab
-                      ? "border-b-2 border-blue-600 text-blue-600"
-                      : "text-gray-600 hover:text-gray-800"
-                  }`}
+                  className={`pb-2 px-4 font-semibold transition whitespace-nowrap ${activeTab === tab
+                    ? "border-b-2 border-blue-600 text-blue-600"
+                    : "text-gray-600 hover:text-gray-800"
+                    }`}
                 >
                   {tab === "details" && "ข้อมูล"}
                   {tab === "tenant" && "ผู้เช่า"}
@@ -189,17 +232,31 @@ export default function Dashboard() {
               {activeTab === "details" && (
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-semibold text-gray-700">หมายเลขห้อง</label>
-                    <p className="text-gray-600">{selectedRoom.RoomID}</p>
-                  </div>
-                  <div>
                     <label className="block text-sm font-semibold text-gray-700">ชื่อห้อง</label>
                     <p className="text-gray-600">{selectedRoom.RoomName}</p>
                   </div>
+
                   <div>
                     <label className="block text-sm font-semibold text-gray-700">สถานะ</label>
-                    <p className="text-gray-600">{selectedRoom.RoomStatus}</p>
+                    <div className="flex items-center gap-3">
+                      <select
+                        value={selectedRoom.RoomStatus}
+                        onChange={(e) => {
+                          const newStatus = e.target.value;
+                          // confirm change if you want
+                          if (!confirm(`เปลี่ยนสถานะเป็น "${newStatus}" สำหรับห้อง ${selectedRoom.RoomName}?`)) return;
+                          updateRoomStatus(selectedRoom.RoomID, newStatus);
+                        }}
+                        className="border rounded px-3 py-2"
+                      >
+                        <option value="Available">Available</option>
+                        <option value="Unavailable">Unavailable</option>
+                        <option value="Renovate">Renovate</option>
+                      </select>
+                    </div>
+                    <p className="text-sm text-gray-500 mt-1">Current: {selectedRoom.RoomStatus}</p>
                   </div>
+
                   <div>
                     <label className="block text-sm font-semibold text-gray-700">สัญญา</label>
                     <p className="text-gray-600">{selectedRoom.ContractId || "ไม่มี"}</p>
@@ -209,51 +266,174 @@ export default function Dashboard() {
 
               {activeTab === "tenant" && (
                 <div className="space-y-4">
-                  <p className="text-gray-600">ยังไม่มีผู้เช่าในห้องนี้</p>
-                  <button className="w-full bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
-                    + เพิ่มผู้เช่า
-                  </button>
+                  {selectedRoom.ContractId ? (
+                    <div>
+                      <p className="text-gray-600"><strong>Tenant ID:</strong> {selectedRoom.ContractId}</p>
+                      <p className="text-gray-600"><strong>Contract Status:</strong> Active</p>
+                      <button className="w-full bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 mt-2">
+                        ยกเลิกสัญญา
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="text-gray-600">ไม่มีผู้เช่าในห้องนี้</p>
+                  )}
                 </div>
               )}
 
               {activeTab === "payment" && (
                 <div className="space-y-4">
-                  <p className="text-gray-600">ยังไม่มีการชำระเงินในห้องนี้</p>
-                  <button className="w-full bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">
-                    + บันทึกการชำระเงิน
-                  </button>
+                  {selectedRoom.ContractId ? (
+                    <>
+                      <div className="bg-blue-50 p-4 rounded">
+                        <p className="text-sm text-gray-600"><strong>สัญญาปัจจุบัน:</strong> {selectedRoom.ContractId}</p>
+                        <p className="text-sm text-gray-600"><strong>ค่าเช่า:</strong> ฿ -</p>
+                        <p className="text-sm text-gray-600"><strong>วันครบกำหนด:</strong> -</p>
+                        <p className="text-sm text-gray-600"><strong>สถานะ:</strong> รอชำระ</p>
+                      </div>
+                      <div>
+                        <h3 className="font-semibold text-gray-700 mb-2">ประวัติการชำระเงิน</h3>
+                        <p className="text-sm text-gray-600">ยังไม่มีประวัติการชำระเงิน</p>
+                      </div>
+                      <button className="w-full bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">
+                        + เพิ่มค่าใช้เพิ่มเติม
+                      </button>
+                    </>
+                  ) : (
+                    <p className="text-gray-600">ไม่มีสัญญาในห้องนี้</p>
+                  )}
                 </div>
               )}
 
               {activeTab === "contract" && (
                 <div className="space-y-4">
-                  <p className="text-gray-600">ยังไม่มีสัญญาในห้องนี้</p>
-                  <button className="w-full bg-orange-600 text-white px-4 py-2 rounded hover:bg-orange-700">
-                    + สร้างสัญญา
-                  </button>
+                  {selectedRoom.ContractId ? (
+                    <div>
+                      <p className="text-gray-600"><strong>สัญญาปัจจุบัน:</strong> {selectedRoom.ContractId}</p>
+                      <button className="w-full bg-orange-600 text-white px-4 py-2 rounded hover:bg-orange-700 mt-2">
+                        + สร้างสัญญาจองห้อง
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-gray-600">ยังไม่มีสัญญาในห้องนี้</p>
+                      <button
+                        onClick={() => setShowContractModal(true)}
+                        className="w-full bg-orange-600 text-white px-4 py-2 rounded hover:bg-orange-700"
+                      >
+                        + สร้างสัญญา
+                      </button>
+                    </>
+                  )}
                 </div>
               )}
             </div>
+          </div>
+        </div>
+      )}
+      {/* Contract Modal */}
+      {showContractModal && (
+        <div className="fixed inset-0 flex items-center justify-center z-50 pointer-events-none">
+          <div className="bg-white rounded-lg shadow-lg p-8 w-full max-w-md pointer-events-auto">
+            <h3 className="text-xl font-bold mb-4">สร้างสัญญาเช่า</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1">ชื่อผู้เช่า</label>
+                <input
+                  type="text"
+                  placeholder="Enter Tenant Name"
+                  value={contractForm.TenantName}
+                  onChange={(e) => setContractForm({ ...contractForm, TenantName: e.target.value })}
+                  className="w-full border rounded px-3 py-2"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1">นามสกุลผู้เช่า</label>
+                <input
+                  type="text"
+                  placeholder="Enter Tenant Surname"
+                  value={contractForm.TenantSurname}
+                  onChange={(e) => setContractForm({ ...contractForm, TenantSurname: e.target.value })}
+                  className="w-full border rounded px-3 py-2"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1">เบอร์โทรผู้เช่า</label>
+                <input
+                  type="tel"
+                  placeholder="Enter Phone"
+                  value={contractForm.Phone}
+                  onChange={(e) => setContractForm({ ...contractForm, Phone: e.target.value })}
+                  className="w-full border rounded px-3 py-2"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1">วันเริ่มสัญญา</label>
+                <input
+                  type="date"
+                  value={contractForm.StartDate}
+                  onChange={(e) => setContractForm({ ...contractForm, StartDate: e.target.value })}
+                  className="w-full border rounded px-3 py-2"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1">วันสิ้นสุดสัญญา</label>
+                <input
+                  type="date"
+                  value={contractForm.EndDate}
+                  onChange={(e) => setContractForm({ ...contractForm, EndDate: e.target.value })}
+                  className="w-full border rounded px-3 py-2"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1">ค่าเช่ารายเดือน (฿)</label>
+                <input
+                  type="number"
+                  placeholder="0"
+                  value={contractForm.MonthlyRent}
+                  onChange={(e) => setContractForm({ ...contractForm, MonthlyRent: e.target.value })}
+                  className="w-full border rounded px-3 py-2"
+                />
+              </div>
 
-            {/* Action Buttons */}
-            <div className="flex gap-4">
-              <button className="flex-1 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
-                ดูรายละเอียด
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1">สถานะสัญญา</label>
+                <select
+                  value={contractForm.ContractStatus}
+                  onChange={(e) => setContractForm({ ...contractForm, ContractStatus: e.target.value })}
+                  className="w-full border rounded px-3 py-2"
+                >
+                  <option value="Active">Active</option>
+                  <option value="Reserved">Reserved</option>
+                  <option value="Expired">Expired</option>
+                </select>
+              </div>
+            </div>
+            <div className="flex gap-2 mt-6">
+              <button
+                onClick={() => {
+                  // TODO: Save contract + tenant to database
+                  setShowContractModal(false);
+                  setContractForm({
+                    TenantName: "",
+                    TenantSurname: "",
+                    Phone: "",
+                    StartDate: "",
+                    EndDate: "",
+                    MonthlyRent: "",
+                    ContractStatus: "Active",
+                  });
+                }}
+                className="flex-1 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+              >
+                บันทึก
               </button>
-              <button className="flex-1 bg-orange-600 text-white px-4 py-2 rounded hover:bg-orange-700">
-                แก้ไข
+              <button
+                onClick={() => setShowContractModal(false)}
+                className="flex-1 bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300"
+              >
+                ยกเลิก
               </button>
             </div>
-
-            <button
-              onClick={() => {
-                setSelectedRoom(null);
-                setActiveTab("details");
-              }}
-              className="w-full mt-4 bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300"
-            >
-              ปิด
-            </button>
           </div>
         </div>
       )}

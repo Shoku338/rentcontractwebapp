@@ -16,3 +16,38 @@ export async function GET(req:NextRequest)
     }
     return NextResponse.json(newestTenant);
 }
+
+export async function PATCH(req: NextRequest) {
+  try {
+    const cookieStore = await cookies();
+    const supabase = createClient(cookieStore);
+    const { RoomID, RoomStatus } = await req.json();
+
+    if (!RoomID || !RoomStatus) {
+      return NextResponse.json(
+        { error: 'Missing RoomID or RoomStatus' },
+        { status: 400 }
+      );
+    }
+
+    const { data, error } = await supabase
+      .from('Room')
+      .update({ RoomStatus })
+      .eq('RoomID', RoomID)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Supabase error:', error);
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
+    return NextResponse.json(data);
+  } catch (err) {
+    console.error('API error:', err);
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : 'Unknown error' },
+      { status: 500 }
+    );
+  }
+}
