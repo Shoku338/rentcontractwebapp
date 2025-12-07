@@ -405,7 +405,7 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
         <div className="bg-white rounded shadow p-6 flex flex-col items-center">
           <span className="text-2xl font-bold text-green-600">
-            {Math.round((rooms.filter(r => r.RoomStatus === "Occupied").length / rooms.length) * 100)}%
+            {Math.round((rooms.filter(r => r.RoomStatus === "Unavailable").length / rooms.length) * 100)}%
           </span>
           <span className="text-gray-600 mt-2">อัตราการเข้าพัก</span>
         </div>
