@@ -22,7 +22,7 @@ export default function Dashboard() {
     TenantName: "",
     TenantSurname: "",
     Phone: "",
-    Mail: "",
+    Email: "",
     StartDate: "",
     EndDate: "",
     MonthlyRent: "",
@@ -98,7 +98,7 @@ export default function Dashboard() {
       const tenantPayload = {
         Firstname: contractForm.TenantName,
         Lastname: contractForm.TenantSurname,
-        Email: "",
+        Email: contractForm.Email,
         Phone: contractForm.Phone,
       };
 
@@ -168,7 +168,7 @@ export default function Dashboard() {
         TenantName: "",
         TenantSurname: "",
         Phone: "",
-        Mail: "",
+        Email: "",
         StartDate: "",
         EndDate: "",
         MonthlyRent: "",
@@ -503,8 +503,8 @@ export default function Dashboard() {
                 <input
                   type="text"
                   placeholder="Enter Email"
-                  value={contractForm.Mail}
-                  onChange={(e) => setContractForm({ ...contractForm, Mail: e.target.value })}
+                  value={contractForm.Email}
+                  onChange={(e) => setContractForm({ ...contractForm, Email: e.target.value })}
                   className="w-full border rounded px-3 py-2"
                 />
               </div>
