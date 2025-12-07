@@ -26,7 +26,7 @@ export default function Dashboard() {
     StartDate: "",
     EndDate: "",
     MonthlyRent: "",
-    ContractStatus: "Active",
+    ContractStatus: "",
   });
 
   async function updateRoomStatus(roomId: number, newStatus: string) {
@@ -172,7 +172,7 @@ export default function Dashboard() {
         StartDate: "",
         EndDate: "",
         MonthlyRent: "",
-        ContractStatus: "Active",
+        ContractStatus: "",
       });
 
       // Replace or refresh the updated room in your rooms state
@@ -386,11 +386,11 @@ export default function Dashboard() {
                     </div>
                     <p className="text-sm text-gray-500 mt-1">Current: {selectedRoom.RoomStatus}</p>
                   </div>
-
-                  <div>
+                  {/* <div>
                     <label className="block text-sm font-semibold text-gray-700">สัญญา</label>
                     <p className="text-gray-600">{selectedRoom.ContractId || "ไม่มี"}</p>
-                  </div>
+                  </div>*/}
+
                 </div>
               )}
 

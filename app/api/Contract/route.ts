@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
         EndDate: payload.EndDate,
         MonthlyRent: payload.MonthlyRent ?? 0,
         CreatedAt: payload.CreatedAt ?? null,
-        ContractStatus: "Active",
+        ContractStatus: payload.ContractStatus ?? "Active",
     };
 
     const { data: createdContract, error: contractError } = await supabase.from("Contract").insert([contractInsert]).select().single();
