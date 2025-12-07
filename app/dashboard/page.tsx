@@ -41,6 +41,7 @@ export default function Dashboard() {
   const [searchQuery, setSearchQuery] = useState("");
   const [editingContract, setEditingContract] = useState<Contract | null>(null);
   const [allActiveContracts, setAllActiveContracts] = useState<{ RoomID: number; ContractStatus: string }[]>([]);
+  const [statusFilters, setStatusFilters] = useState<string[]>([]);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [contractForm, setContractForm] = useState({
     TenantName: "",
@@ -55,6 +56,15 @@ export default function Dashboard() {
 
   const triggerRefresh = () => {
     setRefreshTrigger(prev => prev + 1);
+  };
+
+  const toggleStatusFilter = (status: string) => {
+    setStatusFilters(prev => {
+      if (prev.includes(status)) {
+        return prev.filter(s => s !== status);
+      }
+      return [...prev, status];
+    });
   };
 
   async function updateRoomStatus(roomId: number, newStatus: string) {
@@ -337,9 +347,28 @@ export default function Dashboard() {
     fetchContractsForRoomLocal();
   }, [activeTab, selectedRoom]);
 
-  const filteredRooms = rooms.filter(room =>
-    room.RoomName.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const reservedRoomIds = new Set(allActiveContracts.filter(c => c.ContractStatus === "Reserved").map(c => c.RoomID));
+
+  const filteredRooms = rooms.filter(room => {
+    // Filter by search query
+    const nameMatch = room.RoomName.toLowerCase().includes(searchQuery.toLowerCase());
+    if (!nameMatch) return false;
+
+    // If no status filters are active, show all that match the name
+    if (statusFilters.length === 0) return true;
+
+    // Check against status filters
+    let hasMatchingStatus = false;
+    if (statusFilters.includes("Reserved") && reservedRoomIds.has(room.RoomID)) {
+      hasMatchingStatus = true;
+    }
+    // Check for other statuses. Use `else if` to avoid showing a "Reserved" room twice if "Unavailable" is also selected.
+    else if (statusFilters.includes(room.RoomStatus)) {
+      hasMatchingStatus = true;
+    }
+
+    return hasMatchingStatus;
+  });
 
   const groupedRooms = filteredRooms.reduce((acc, room) => {
     // special TA group (111-115)
@@ -405,14 +434,31 @@ export default function Dashboard() {
       </div>
 
       {/* Search Bar */}
-      <div className="bg-white rounded shadow p-4 mb-6">
-        <input
-          type="text"
-          placeholder="ค้นหาห้องด้วยชื่อ..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500"
-        />
+      <div className="bg-white rounded shadow p-4 mb-6 flex flex-col md:flex-row items-center gap-4">
+        <div className="flex-grow">
+          <input
+            type="text"
+            placeholder="ค้นหาห้องด้วยชื่อ..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500"
+          />
+        </div>
+        <div className="flex flex-wrap gap-2 justify-center">
+          {["Available", "Reserved", "Unavailable", "Renovate"].map(status => (
+            <button
+              key={status}
+              onClick={() => toggleStatusFilter(status)}
+              className={`px-3 py-1 text-sm font-semibold rounded-full border transition whitespace-nowrap ${statusFilters.includes(status)
+                  ? "bg-blue-600 text-white border-blue-600"
+                  : "bg-white text-gray-700 border-gray-300 hover:bg-gray-100"
+                }`}
+            >
+              {status}
+            </button>
+          ))}
+        </div>
+
       </div>
 
       {/* Building List - Group by Floor */}
