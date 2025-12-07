@@ -40,6 +40,8 @@ export default function Dashboard() {
   const [loadingContracts, setLoadingContracts] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [editingContract, setEditingContract] = useState<Contract | null>(null);
+  const [allActiveContracts, setAllActiveContracts] = useState<{ RoomID: number; ContractStatus: string }[]>([]);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [contractForm, setContractForm] = useState({
     TenantName: "",
     TenantSurname: "",
@@ -50,6 +52,10 @@ export default function Dashboard() {
     MonthlyRent: "",
     ContractStatus: "",
   });
+
+  const triggerRefresh = () => {
+    setRefreshTrigger(prev => prev + 1);
+  };
 
   async function updateRoomStatus(roomId: number, newStatus: string) {
     // optimistic UI update
@@ -70,9 +76,7 @@ export default function Dashboard() {
       }
 
       // optionally read response and reconcile if backend returns canonical record
-      const updated = await res.json();
-      setRooms(prev => prev.map(r => r.RoomID === roomId ? updated : r));
-      if (selectedRoom && selectedRoom.RoomID === roomId) setSelectedRoom(updated);
+      triggerRefresh();
     } catch (err) {
       // rollback optimistic update on error
       setRooms(prev => prev.map(r => r.RoomID === roomId ? { ...r, RoomStatus: selectedRoom?.RoomStatus ?? r.RoomStatus } : r));
@@ -168,7 +172,7 @@ export default function Dashboard() {
         }
 
         // Refresh contracts for the room to show updated data
-        await fetchContractsForRoom();
+        triggerRefresh();
         handleCloseContractModal();
         alert("Contract updated successfully!");
 
@@ -203,30 +207,6 @@ export default function Dashboard() {
       }
       const createdTenant = await tenantRes.json();
 
-      // Compute CreatedAt (today's date as ISO string)
-      const today = new Date();
-      const createdAt = today.toISOString().split("T")[0]; // YYYY-MM-DD format
-
-      // Determine ContractStatus based on StartDate and EndDate
-      const startDate = new Date(contractForm.StartDate);
-      const endDate = new Date(contractForm.EndDate);
-      const now = new Date();
-      const todayNoTime = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      const startNoTime = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
-      const endNoTime = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
-
-      let derivedStatus = "Active";
-      if (todayNoTime < startNoTime) {
-        // Today is before start date → Reserved
-        derivedStatus = "Reserved";
-      } else if (todayNoTime > endNoTime) {
-        // Today is after end date → Expired
-        derivedStatus = "Expired";
-      } else {
-        // Today is between start and end → Active
-        derivedStatus = "Active";
-      }
-
       // 2) create contract using returned TenantID and selected room's RoomID
       const contractRes = await fetch("/api/Contract", {
         method: "POST",
@@ -237,8 +217,6 @@ export default function Dashboard() {
           StartDate: contractForm.StartDate,
           EndDate: contractForm.EndDate,
           MonthlyRent: Number(contractForm.MonthlyRent || 0),
-          ContractStatus: derivedStatus, // always Active; room status derives from dates
-          CreatedAt: createdAt,
         }),
       });
 
@@ -264,12 +242,9 @@ export default function Dashboard() {
         ContractStatus: "",
       });
 
-      // Replace or refresh the updated room in your rooms state
-      setRooms(prev => prev.map(r => (r.RoomID === room.RoomID ? room : r)));
-      if (selectedRoom && selectedRoom.RoomID === room.RoomID) setSelectedRoom(room);
-
       // success feedback
       alert("สร้างสัญญาเรียบร้อยแล้ว");
+      triggerRefresh();
     } catch (err) {
       const message = err instanceof Error ? err.message : "Save failed";
       alert(message);
@@ -283,6 +258,11 @@ export default function Dashboard() {
   useEffect(() => {
     const fetchRooms = async () => {
       try {
+        setLoading(true);
+        // First, trigger the backend to synchronize all statuses
+        // The file is at /dashboard/route.ts, so the endpoint is /dashboard
+        await fetch("/dashboard", { method: "POST" });
+
         // Fetch both rooms and active/reserved contracts in parallel
         const [roomsRes, contractsRes] = await Promise.all([
           fetch("/api/Room"),
@@ -294,16 +274,13 @@ export default function Dashboard() {
 
         const roomsData: Room[] = await roomsRes.json();
         const activeContracts: { RoomID: number; ContractStatus: string }[] = await contractsRes.json();
+        setAllActiveContracts(activeContracts);
 
         // Create a map for quick lookup of room contract status
         const roomContractStatusMap = new Map<number, string>();
         for (const contract of activeContracts) {
-          // Prioritize 'Active' status over 'Reserved'
-          if (contract.ContractStatus === "Active") {
-            roomContractStatusMap.set(contract.RoomID, "Unavailable");
-          } else if (contract.ContractStatus === "Reserved" && !roomContractStatusMap.has(contract.RoomID)) {
-            roomContractStatusMap.set(contract.RoomID, "Booked");
-          }
+          // If a room has any active or reserved contract, it is considered Unavailable.
+          roomContractStatusMap.set(contract.RoomID, "Unavailable");
         }
 
         // Synchronize room statuses based on contract data
@@ -325,7 +302,7 @@ export default function Dashboard() {
     };
 
     fetchRooms();
-  }, []);
+  }, [refreshTrigger]);
 
   useEffect(() => {
     async function fetchContractsForRoomLocal() {
@@ -404,14 +381,14 @@ export default function Dashboard() {
       {/* Top Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
         <div className="bg-white rounded shadow p-6 flex flex-col items-center">
-          <span className="text-2xl font-bold text-green-600">
-            {Math.round((rooms.filter(r => r.RoomStatus === "Unavailable").length / rooms.length) * 100)}%
+          <span className="text-2xl font-bold text-green-600" title={`${rooms.filter(r => r.RoomStatus === "Unavailable").length} / ${rooms.length} rooms`}>
+            {rooms.length > 0 ? Math.round((rooms.filter(r => r.RoomStatus === "Unavailable").length / rooms.length) * 100) : 0}%
           </span>
           <span className="text-gray-600 mt-2">อัตราการเข้าพัก</span>
         </div>
         <div className="bg-white rounded shadow p-6 flex flex-col items-center">
           <span className="text-2xl font-bold text-yellow-600">
-            {rooms.filter(r => r.RoomStatus === "Booked").length} ห้อง
+            {new Set(allActiveContracts.filter(c => c.ContractStatus === "Reserved").map(c => c.RoomID)).size} ห้อง
           </span>
           <span className="text-gray-600 mt-2">ห้องจอง</span>
         </div>

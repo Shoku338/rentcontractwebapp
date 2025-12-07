@@ -61,6 +61,15 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Missing contract fields (RoomID, TenantID, StartDate, EndDate)" }, { status: 400 });
     }
 
+    // Server-side status derivation
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const startDate = new Date(payload.StartDate);
+    let derivedStatus = "Active";
+    if (startDate > today) {
+        derivedStatus = "Reserved";
+    }
+
     // Insert contract
     const contractInsert = {
         RoomID: payload.RoomID,
@@ -68,8 +77,7 @@ export async function POST(req: NextRequest) {
         StartDate: payload.StartDate,
         EndDate: payload.EndDate,
         MonthlyRent: payload.MonthlyRent ?? 0,
-        CreatedAt: payload.CreatedAt ?? null,
-        ContractStatus: payload.ContractStatus ?? "Active",
+        ContractStatus: derivedStatus,
     };
 
     const { data: createdContract, error: contractError } = await supabase.from("Contract").insert([contractInsert]).select().single();
@@ -78,21 +86,9 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: contractError?.message ?? "Failed to create contract" }, { status: 500 });
     }
 
-    // Determine new RoomStatus: Occupied if start <= today else Booked
-    let newRoomStatus = "Unavailable";
-    try {
-        const sd = new Date(contractInsert.StartDate);
-        const today = new Date();
-        const s = new Date(sd.getFullYear(), sd.getMonth(), sd.getDate());
-        const t = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-        newRoomStatus = s <= t ? "Unavailable" : "Available";
-    } catch {
-        newRoomStatus = "Unavailable";
-    }
-
     const { data: updatedRoom, error: roomError } = await supabase
         .from("Room")
-        .update({ RoomStatus: newRoomStatus })
+        .update({ RoomStatus: "Unavailable" }) // Any new contract makes the room unavailable
         .eq("RoomID", contractInsert.RoomID)
         .select()
         .single();
@@ -149,6 +145,16 @@ export async function PATCH(req: NextRequest) {
     if (!updatedTenant || updatedTenant.length === 0) {
         return NextResponse.json({ error: "Tenant not found for update." }, { status: 404 });
     }
+
+    // Re-derive contract status based on potentially new dates
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const startDate = new Date(contractData.StartDate);
+    const endDate = new Date(contractData.EndDate);
+    
+    if (endDate < today) contractData.ContractStatus = "Expired";
+    else if (startDate > today) contractData.ContractStatus = "Reserved";
+    else contractData.ContractStatus = "Active";
 
     // 2. Update Contract
     const { data: updatedContract, error: contractError } = await supabase
