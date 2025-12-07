@@ -2,6 +2,24 @@
 
 import { useState, useEffect } from "react";
 
+type Tenant = {
+  TenantID: number;
+  Firstname: string;
+  Lastname: string;
+  Phone: string;
+  Email: string;
+};
+
+type Contract = {
+  ContractId: string;
+  ContractStatus: "Active" | "Expired" | "Reserved";
+  StartDate: string;
+  EndDate: string;
+  MonthlyRent: number;
+  // This matches the 'tenants(*)' join from your API
+  tenants: Tenant;
+};
+
 type Room = {
   RoomID: number;
   RoomName: string;
@@ -18,6 +36,10 @@ export default function Dashboard() {
   const [showContractModal, setShowContractModal] = useState(false);
   const [savingContract, setSavingContract] = useState(false);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+  const [roomContracts, setRoomContracts] = useState<Contract[]>([]);
+  const [loadingContracts, setLoadingContracts] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [editingContract, setEditingContract] = useState<Contract | null>(null);
   const [contractForm, setContractForm] = useState({
     TenantName: "",
     TenantSurname: "",
@@ -62,6 +84,28 @@ export default function Dashboard() {
     }
   }
 
+  function handleEditContract(contract: Contract) {
+    setEditingContract(contract);
+    setContractForm({
+      TenantName: contract.tenants.Firstname,
+      TenantSurname: contract.tenants.Lastname,
+      Phone: contract.tenants.Phone,
+      Email: contract.tenants.Email,
+      StartDate: contract.StartDate,
+      EndDate: contract.EndDate,
+      MonthlyRent: String(contract.MonthlyRent),
+      ContractStatus: contract.ContractStatus,
+    });
+    setShowContractModal(true);
+  }
+
+  function handleCloseContractModal() {
+    setShowContractModal(false);
+    setEditingContract(null);
+    setFormErrors({});
+    // Reset form to blank
+  }
+
   async function validateContractForm() {
     const errors: Record<string, string> = {};
     if (!contractForm.TenantName?.trim()) errors.TenantName = "กรุณาใส่ชื่อผู้เช่า";
@@ -93,6 +137,51 @@ export default function Dashboard() {
     }
 
     setSavingContract(true);
+
+    if (editingContract) {
+      // Logic for UPDATING an existing contract
+      try {
+        const tenantPayload = {
+          TenantID: editingContract.tenants.TenantID,
+          Firstname: contractForm.TenantName,
+          Lastname: contractForm.TenantSurname,
+          Email: contractForm.Email,
+          Phone: contractForm.Phone,
+        };
+
+        const contractPayload = {
+          StartDate: contractForm.StartDate,
+          EndDate: contractForm.EndDate,
+          MonthlyRent: Number(contractForm.MonthlyRent || 0),
+          ContractStatus: contractForm.ContractStatus,
+        };
+
+        const res = await fetch(`/api/Contract?id=${editingContract.ContractId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tenantData: tenantPayload, contractData: contractPayload }),
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => null);
+          throw new Error(err?.error ?? "Failed to update contract");
+        }
+
+        // Refresh contracts for the room to show updated data
+        await fetchContractsForRoom();
+        handleCloseContractModal();
+        alert("Contract updated successfully!");
+
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Update failed";
+        alert(message);
+      } finally {
+        setSavingContract(false);
+      }
+      return; // End execution for edit mode
+    }
+
+    // --- Logic for CREATING a new contract (existing code) ---
     try {
       // 1) create tenant
       const tenantPayload = {
@@ -163,7 +252,7 @@ export default function Dashboard() {
       const { contract, room } = await contractRes.json();
 
       // update local UI: close modal, reset form
-      setShowContractModal(false);
+      handleCloseContractModal();
       setContractForm({
         TenantName: "",
         TenantSurname: "",
@@ -189,13 +278,45 @@ export default function Dashboard() {
     }
   }
 
+  async function fetchContractsForRoom() { } // Placeholder for the actual function
+
   useEffect(() => {
     const fetchRooms = async () => {
       try {
-        const response = await fetch("/api/Room");
-        if (!response.ok) throw new Error("Failed to fetch rooms");
-        const data = await response.json();
-        setRooms(data);
+        // Fetch both rooms and active/reserved contracts in parallel
+        const [roomsRes, contractsRes] = await Promise.all([
+          fetch("/api/Room"),
+          fetch("/api/ActiveContract"), // Use the new dedicated endpoint
+        ]);
+
+        if (!roomsRes.ok) throw new Error("Failed to fetch rooms");
+        if (!contractsRes.ok) throw new Error("Failed to fetch active contracts");
+
+        const roomsData: Room[] = await roomsRes.json();
+        const activeContracts: { RoomID: number; ContractStatus: string }[] = await contractsRes.json();
+
+        // Create a map for quick lookup of room contract status
+        const roomContractStatusMap = new Map<number, string>();
+        for (const contract of activeContracts) {
+          // Prioritize 'Active' status over 'Reserved'
+          if (contract.ContractStatus === "Active") {
+            roomContractStatusMap.set(contract.RoomID, "Unavailable");
+          } else if (contract.ContractStatus === "Reserved" && !roomContractStatusMap.has(contract.RoomID)) {
+            roomContractStatusMap.set(contract.RoomID, "Booked");
+          }
+        }
+
+        // Synchronize room statuses based on contract data
+        const synchronizedRooms = roomsData.map(room => {
+          // Do not update rooms under renovation
+          if (room.RoomStatus === "Renovate") {
+            return room;
+          }
+          const newStatus = roomContractStatusMap.get(room.RoomID) || "Available";
+          return { ...room, RoomStatus: newStatus };
+        });
+
+        setRooms(synchronizedRooms);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Unknown error");
       } finally {
@@ -206,7 +327,44 @@ export default function Dashboard() {
     fetchRooms();
   }, []);
 
-  const groupedRooms = rooms.reduce((acc, room) => {
+  useEffect(() => {
+    async function fetchContractsForRoomLocal() {
+      if (!["tenant", "contract"].includes(activeTab) || !selectedRoom) {
+        return;
+      }
+
+      setLoadingContracts(true);
+      setRoomContracts([]);
+      try {
+        const res = await fetch(`/api/Contract?roomId=${selectedRoom.RoomID}`);
+        if (!res.ok) {
+          throw new Error("Failed to fetch contracts for the room");
+        }
+        const data: Contract[] = await res.json();
+        // Sort contracts to show Active ones first
+        data.sort((a, b) => {
+          if (a.ContractStatus === "Active" && b.ContractStatus !== "Active") return -1;
+          if (a.ContractStatus !== "Active" && b.ContractStatus === "Active") return 1;
+          return 0;
+        });
+        setRoomContracts(data);
+      } catch (err) {
+        alert(err instanceof Error ? err.message : "Could not load contract details.");
+      } finally {
+        setLoadingContracts(false);
+      }
+    };
+
+    // Assign to outer scope function so handleSaveContract can call it
+    (fetchContractsForRoom as any) = fetchContractsForRoomLocal;
+    fetchContractsForRoomLocal();
+  }, [activeTab, selectedRoom]);
+
+  const filteredRooms = rooms.filter(room =>
+    room.RoomName.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const groupedRooms = filteredRooms.reduce((acc, room) => {
     // special TA group (111-115)
     if (room.RoomID >= 111 && room.RoomID <= 115) {
       acc["TA"] = acc["TA"] ?? [];
@@ -269,14 +427,15 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Filter & Actions */}
-      <div className="bg-white rounded shadow p-6 mb-6 flex flex-col md:flex-row items-center justify-between gap-4">
-        <div className="flex gap-2">
-          <button className="bg-blue-600 text-white px-4 py-2 rounded">สนใจห้อง</button>
-        </div>
-        <button className="bg-orange-100 text-orange-700 px-4 py-2 rounded border border-orange-300">
-          เพิ่ม/ลบ อาคาร
-        </button>
+      {/* Search Bar */}
+      <div className="bg-white rounded shadow p-4 mb-6">
+        <input
+          type="text"
+          placeholder="ค้นหาห้องด้วยชื่อ..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500"
+        />
       </div>
 
       {/* Building List - Group by Floor */}
@@ -284,9 +443,10 @@ export default function Dashboard() {
         <div className="bg-white rounded shadow p-6">
           <div className="flex items-center justify-between mb-4">
             <h1 className="text-2xl font-bold mb-6 text-blue-900">อาคาร 1</h1>
-            <button className="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 transition">
+            {/* <button className="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 transition">
               จัดการตึก
-            </button>
+            </button> */}
+
           </div>
 
           {/* Floors */}
@@ -396,16 +556,33 @@ export default function Dashboard() {
 
               {activeTab === "tenant" && (
                 <div className="space-y-4">
-                  {selectedRoom.ContractId ? (
-                    <div>
-                      <p className="text-gray-600"><strong>Tenant ID:</strong> {selectedRoom.ContractId}</p>
-                      <p className="text-gray-600"><strong>Contract Status:</strong> Active</p>
-                      <button className="w-full bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 mt-2">
-                        ยกเลิกสัญญา
-                      </button>
-                    </div>
+                  {loadingContracts ? (
+                    <p>Loading tenant information...</p>
+                  ) : roomContracts.length > 0 ? (
+                    roomContracts.map((contract) => (
+                      <div key={contract.ContractId} className="p-4 border rounded-lg shadow-sm bg-gray-50">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <h4 className="font-bold text-lg text-blue-800">
+                              {contract.tenants.Firstname} {contract.tenants.Lastname}
+                            </h4>
+                            <p className="text-sm text-gray-600">Phone: {contract.tenants.Phone}</p>
+                            <p className="text-sm text-gray-600">Email: {contract.tenants.Email}</p>
+                          </div>
+                          <span
+                            className={`px-3 py-1 text-sm font-semibold rounded-full ${contract.ContractStatus === "Active" ? "bg-green-200 text-green-800" : "bg-yellow-200 text-yellow-800"}`}
+                          >
+                            {contract.ContractStatus}
+                          </span>
+                        </div>
+                        <button onClick={() => handleEditContract(contract)} className="text-sm text-blue-600 hover:underline mt-2">
+                          Edit Details
+                        </button>
+                        <p className="text-xs text-gray-500 mt-2">Contract ID: {contract.ContractId}</p>
+                      </div>
+                    ))
                   ) : (
-                    <p className="text-gray-600">ไม่มีผู้เช่าในห้องนี้</p>
+                    <p className="text-gray-600">No tenant contracts found for this room.</p>
                   )}
                 </div>
               )}
@@ -436,24 +613,35 @@ export default function Dashboard() {
 
               {activeTab === "contract" && (
                 <div className="space-y-4">
-                  {selectedRoom.ContractId ? (
-                    <div>
-                      <p className="text-gray-600"><strong>สัญญาปัจจุบัน:</strong> {selectedRoom.ContractId}</p>
-                      <button className="w-full bg-orange-600 text-white px-4 py-2 rounded hover:bg-orange-700 mt-2">
-                        + สร้างสัญญาจองห้อง
-                      </button>
-                    </div>
+                  {loadingContracts ? (
+                    <p>Loading contract information...</p>
+                  ) : roomContracts.length > 0 ? (
+                    roomContracts.map((contract) => (
+                      <div key={contract.ContractId} className="p-4 border rounded-lg shadow-sm bg-gray-50">
+                        <div className="flex justify-between items-start mb-2">
+                          <h4 className="font-bold text-lg text-blue-800">
+                            {contract.tenants.Firstname} {contract.tenants.Lastname}
+                          </h4>
+                          <span
+                            className={`px-3 py-1 text-sm font-semibold rounded-full ${contract.ContractStatus === "Active" ? "bg-green-200 text-green-800" : "bg-yellow-200 text-yellow-800"}`}
+                          >
+                            {contract.ContractStatus}
+                          </span>
+                        </div>
+                        <p className="text-sm text-gray-600"><strong>Duration:</strong> {contract.StartDate} to {contract.EndDate}</p>
+                        <p className="text-sm text-gray-600"><strong>Rent:</strong> ฿{contract.MonthlyRent.toLocaleString()}/month</p>
+                        <button onClick={() => handleEditContract(contract)} className="text-sm text-blue-600 hover:underline mt-2">
+                          Edit Contract
+                        </button>
+                        <p className="text-xs text-gray-500 mt-2">Contract ID: {contract.ContractId}</p>
+                      </div>
+                    ))
                   ) : (
-                    <>
-                      <p className="text-gray-600">ยังไม่มีสัญญาในห้องนี้</p>
-                      <button
-                        onClick={() => setShowContractModal(true)}
-                        className="w-full bg-orange-600 text-white px-4 py-2 rounded hover:bg-orange-700"
-                      >
-                        + สร้างสัญญา
-                      </button>
-                    </>
+                    <p className="text-gray-600">No contracts found for this room.</p>
                   )}
+                  <button onClick={() => { setEditingContract(null); setShowContractModal(true); }} className="w-full bg-orange-600 text-white px-4 py-2 rounded hover:bg-orange-700 mt-4">
+                    + สร้างสัญญาใหม่
+                  </button>
                 </div>
               )}
             </div>
@@ -464,7 +652,7 @@ export default function Dashboard() {
       {showContractModal && (
         <div className="fixed inset-0 flex items-center justify-center z-50 pointer-events-none">
           <div className="bg-white rounded-lg shadow-lg p-8 w-full max-w-md pointer-events-auto">
-            <h3 className="text-xl font-bold mb-4">สร้างสัญญาเช่า ห้อง {selectedRoom?.RoomName}</h3>
+            <h3 className="text-xl font-bold mb-4">{editingContract ? "Edit Contract" : "Create Contract"} for Room {selectedRoom?.RoomName}</h3>
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-1">ชื่อผู้เช่า</label>
@@ -549,7 +737,7 @@ export default function Dashboard() {
                 {savingContract ? "กำลังบันทึก..." : "บันทึก"}
               </button>
               <button
-                onClick={() => setShowContractModal(false)}
+                onClick={handleCloseContractModal}
                 className="flex-1 bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300"
               >
                 ยกเลิก

@@ -16,6 +16,24 @@ export async function GET(req: NextRequest) {
     const cookieStore = await cookies();
     const supabase = createClient(cookieStore);
 
+    const { searchParams } = req.nextUrl;
+    const roomId = searchParams.get("roomId");
+
+    // If a roomId is provided, fetch contracts for that specific room
+    if (roomId) {
+        // The select('*, Tenant(*)') tells Supabase to also fetch the related tenant data.
+        // This requires a foreign key relationship between Contract (TenantID) and Tenant (TenantID).
+        const { data, error } = await supabase
+            .from("Contract")
+            .select("*, tenants(*)")
+            .eq("RoomID", roomId);
+
+        if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+        // If no contracts are found, Supabase returns an empty array, which is the correct response.
+        return NextResponse.json(data ?? []);
+    }
+
+    // Fallback for when no roomId is provided (optional, but good to keep for now)
     const { data, error } = await supabase
         .from("Contract")
         .select("*")
@@ -23,7 +41,7 @@ export async function GET(req: NextRequest) {
         .limit(50);
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json(data);
+    return NextResponse.json(data ?? []);
 }
 
 export async function POST(req: NextRequest) {
@@ -91,4 +109,62 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ contract: createdContract, room: updatedRoom }, { status: 201 });
+}
+
+export async function PATCH(req: NextRequest) {
+    const cookieStore = await cookies();
+    const supabase = createClient(cookieStore);
+
+    const { searchParams } = req.nextUrl;
+    const contractId = searchParams.get("id");
+
+    if (!contractId) {
+        return NextResponse.json({ error: "Contract ID is required for update" }, { status: 400 });
+    }
+
+    let body: any;
+    try {
+        body = await req.json();
+    } catch {
+        return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    }
+
+    const { tenantData, contractData } = body;
+
+    if (!tenantData || !contractData) {
+        return NextResponse.json({ error: "Missing tenant or contract data" }, { status: 400 });
+    }
+
+    // 1. Update Tenant
+    const { data: updatedTenant, error: tenantError } = await supabase
+        .from("tenants")
+        .update(tenantData)
+        .eq("TenantID", tenantData.TenantID)
+        .select(); // Remove .single()
+
+    if (tenantError) {
+        return NextResponse.json({ error: `Failed to update tenant: ${tenantError.message}` }, { status: 500 });
+    }
+    // Check if the update was successful
+    if (!updatedTenant || updatedTenant.length === 0) {
+        return NextResponse.json({ error: "Tenant not found for update." }, { status: 404 });
+    }
+
+    // 2. Update Contract
+    const { data: updatedContract, error: contractError } = await supabase
+        .from("Contract")
+        .update(contractData)
+        .eq("ContractId", contractId)
+        .select()
+        .single(); // .single() is okay here if ContractId is a unique primary key
+
+    if (contractError) {
+        // The error might be because the contract was not found
+        if (contractError.code === 'PGRST116') { // "Cannot coerce to single" error code
+            return NextResponse.json({ error: "Contract not found for update." }, { status: 404 });
+        }
+        return NextResponse.json({ error: `Failed to update contract: ${contractError.message}` }, { status: 500 });
+    }
+
+    return NextResponse.json({ tenant: updatedTenant[0], contract: updatedContract }, { status: 200 });
 }

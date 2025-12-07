@@ -53,3 +53,43 @@ export async function DELETE(req: NextRequest) {
   }
   return NextResponse.json(data);
 }
+
+export async function PATCH(req: NextRequest) {
+  const cookieStore = await cookies();
+  const supabase = createClient(cookieStore);
+
+  const { searchParams } = req.nextUrl;
+  const tenantId = searchParams.get("id");
+
+  if (!tenantId) {
+    return NextResponse.json({ error: "Tenant ID is required for update" }, { status: 400 });
+  }
+
+  let body: any;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  // Construct a payload with only the fields that are allowed to be updated.
+  const updatePayload: { [key: string]: any } = {
+    Firstname: body.Firstname,
+    Lastname: body.Lastname,
+    Email: body.Email,
+    Phone: body.Phone,
+  };
+
+  // Remove any keys with undefined values so they don't nullify existing data.
+  Object.keys(updatePayload).forEach(key => updatePayload[key] === undefined && delete updatePayload[key]);
+
+  const { data, error } = await supabase
+    .from("tenants")
+    .update(updatePayload)
+    .eq("TenantID", Number(tenantId))
+    .select()
+    .single();
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json(data, { status: 200 });
+}
