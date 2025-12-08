@@ -1,15 +1,38 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Room, Contract } from "../types";
-import * as api from "../services/apiService";
-import { useDashboardData } from "../hooks/useDashboardData";
+
+type Tenant = {
+  TenantID: number;
+  Firstname: string;
+  Lastname: string;
+  Phone: string;
+  Email: string;
+};
+
+type Contract = {
+  ContractId: string;
+  ContractStatus: "Active" | "Expired" | "Reserved";
+  StartDate: string;
+  EndDate: string;
+  MonthlyRent: number;
+  // This matches the 'tenants(*)' join from your API
+  tenants: Tenant;
+};
+
+type Room = {
+  RoomID: number;
+  RoomName: string;
+  ContractId: string | null;
+  RoomStatus: string;
+};
 
 export default function Dashboard() {
-  const { rooms, loading, error, allActiveContracts, triggerRefresh } = useDashboardData();
-
   const [selectedRoom, setSelectedRoom] = useState<Room | null>(null);
   const [activeTab, setActiveTab] = useState("details");
+  const [rooms, setRooms] = useState<Room[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showContractModal, setShowContractModal] = useState(false);
   const [savingContract, setSavingContract] = useState(false);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
@@ -17,7 +40,9 @@ export default function Dashboard() {
   const [loadingContracts, setLoadingContracts] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [editingContract, setEditingContract] = useState<Contract | null>(null);
+  const [allActiveContracts, setAllActiveContracts] = useState<{ RoomID: number; ContractStatus: string }[]>([]);
   const [statusFilters, setStatusFilters] = useState<string[]>([]);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [contractForm, setContractForm] = useState({
     TenantName: "",
     TenantSurname: "",
@@ -29,6 +54,10 @@ export default function Dashboard() {
     ContractStatus: "",
   });
 
+  const triggerRefresh = () => {
+    setRefreshTrigger(prev => prev + 1);
+  };
+
   const toggleStatusFilter = (status: string) => {
     setStatusFilters(prev => {
       if (prev.includes(status)) {
@@ -39,13 +68,32 @@ export default function Dashboard() {
   };
 
   async function updateRoomStatus(roomId: number, newStatus: string) {
+    // optimistic UI update
+    setRooms(prev => prev.map(r => r.RoomID === roomId ? { ...r, RoomStatus: newStatus } : r));
+    if (selectedRoom && selectedRoom.RoomID === roomId) {
+      setSelectedRoom({ ...selectedRoom, RoomStatus: newStatus });
+    }
+
     try {
-      await api.updateRoomStatusAPI(roomId, newStatus);
+      const res = await fetch("/api/Room", {
+        method: "PATCH", // or "PUT" depending on your API
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ RoomID: roomId, RoomStatus: newStatus }),
+      });
+
+      if (!res.ok) {
+        throw new Error("Failed to update room status");
+      }
+
+      // optionally read response and reconcile if backend returns canonical record
       triggerRefresh();
     } catch (err) {
-      // The refresh on failure is not ideal, but simple. A better implementation
-      // would involve optimistic UI updates and rollbacks.
-      triggerRefresh();
+      // rollback optimistic update on error
+      setRooms(prev => prev.map(r => r.RoomID === roomId ? { ...r, RoomStatus: selectedRoom?.RoomStatus ?? r.RoomStatus } : r));
+      if (selectedRoom && selectedRoom.RoomID === roomId) {
+        // keep the previous status in the selectedRoom UI
+        setSelectedRoom(prev => prev ? { ...prev, RoomStatus: prev.RoomStatus } : prev);
+      }
       alert(err instanceof Error ? err.message : "Update failed");
     }
   }
@@ -104,26 +152,92 @@ export default function Dashboard() {
 
     setSavingContract(true);
 
+    if (editingContract) {
+      // Logic for UPDATING an existing contract
+      try {
+        const tenantPayload = {
+          TenantID: editingContract.tenants.TenantID,
+          Firstname: contractForm.TenantName,
+          Lastname: contractForm.TenantSurname,
+          Email: contractForm.Email,
+          Phone: contractForm.Phone,
+        };
+
+        const contractPayload = {
+          StartDate: contractForm.StartDate,
+          EndDate: contractForm.EndDate,
+          MonthlyRent: Number(contractForm.MonthlyRent || 0),
+          ContractStatus: contractForm.ContractStatus,
+        };
+
+        const res = await fetch(`/api/Contract?id=${editingContract.ContractId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tenantData: tenantPayload, contractData: contractPayload }),
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => null);
+          throw new Error(err?.error ?? "Failed to update contract");
+        }
+
+        // Refresh contracts for the room to show updated data
+        triggerRefresh();
+        handleCloseContractModal();
+        alert("Contract updated successfully!");
+
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Update failed";
+        alert(message);
+      } finally {
+        setSavingContract(false);
+      }
+      return; // End execution for edit mode
+    }
+
+    // --- Logic for CREATING a new contract (existing code) ---
     try {
-      const tenantData = {
-        ...(editingContract && { TenantID: editingContract.tenants.TenantID }),
+      // 1) create tenant
+      const tenantPayload = {
         Firstname: contractForm.TenantName,
         Lastname: contractForm.TenantSurname,
         Email: contractForm.Email,
         Phone: contractForm.Phone,
       };
-      const contractData = {
-        StartDate: contractForm.StartDate,
-        EndDate: contractForm.EndDate,
-        MonthlyRent: Number(contractForm.MonthlyRent || 0),
-        ContractStatus: contractForm.ContractStatus, // Status will be re-derived on the server
-      };
 
-      await api.saveContractAPI(
-        { tenantData, contractData },
-        editingContract,
-        selectedRoom
-      );
+      const tenantRes = await fetch("/api/Tenant", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(tenantPayload),
+      });
+
+      if (!tenantRes.ok) {
+        const errBody = await tenantRes.json().catch(() => null);
+        throw new Error(errBody?.error ?? "Failed to create tenant");
+      }
+      const createdTenant = await tenantRes.json();
+
+      // 2) create contract using returned TenantID and selected room's RoomID
+      const contractRes = await fetch("/api/Contract", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          RoomID: selectedRoom!.RoomID,
+          TenantID: createdTenant.TenantID,
+          StartDate: contractForm.StartDate,
+          EndDate: contractForm.EndDate,
+          MonthlyRent: Number(contractForm.MonthlyRent || 0),
+        }),
+      });
+
+      if (!contractRes.ok) {
+        // rollback tenant (optional)
+        await fetch(`/api/Tenant?id=${createdTenant.TenantID}`, { method: "DELETE" }).catch(() => { });
+        const err = await contractRes.json().catch(() => null);
+        throw new Error(err?.error ?? "Failed to create contract");
+      }
+
+      const { contract, room } = await contractRes.json();
 
       // update local UI: close modal, reset form
       handleCloseContractModal();
@@ -139,9 +253,8 @@ export default function Dashboard() {
       });
 
       // success feedback
-      alert(editingContract ? "Contract updated successfully!" : "สร้างสัญญาเรียบร้อยแล้ว");
+      alert("สร้างสัญญาเรียบร้อยแล้ว");
       triggerRefresh();
-
     } catch (err) {
       const message = err instanceof Error ? err.message : "Save failed";
       alert(message);
@@ -149,6 +262,57 @@ export default function Dashboard() {
       setSavingContract(false);
     }
   }
+
+  async function fetchContractsForRoom() { } // Placeholder for the actual function
+
+  useEffect(() => {
+    const fetchRooms = async () => {
+      try {
+        setLoading(true);
+        // First, trigger the backend to synchronize all statuses
+        // The file is at /dashboard/route.ts, so the endpoint is /dashboard
+        await fetch("/dashboard", { method: "POST" });
+
+        // Fetch both rooms and active/reserved contracts in parallel
+        const [roomsRes, contractsRes] = await Promise.all([
+          fetch("/api/Room"),
+          fetch("/api/ActiveContract"), // Use the new dedicated endpoint
+        ]);
+
+        if (!roomsRes.ok) throw new Error("Failed to fetch rooms");
+        if (!contractsRes.ok) throw new Error("Failed to fetch active contracts");
+
+        const roomsData: Room[] = await roomsRes.json();
+        const activeContracts: { RoomID: number; ContractStatus: string }[] = await contractsRes.json();
+        setAllActiveContracts(activeContracts);
+
+        // Create a map for quick lookup of room contract status
+        const roomContractStatusMap = new Map<number, string>();
+        for (const contract of activeContracts) {
+          // If a room has any active or reserved contract, it is considered Unavailable.
+          roomContractStatusMap.set(contract.RoomID, "Unavailable");
+        }
+
+        // Synchronize room statuses based on contract data
+        const synchronizedRooms = roomsData.map(room => {
+          // Do not update rooms under renovation
+          if (room.RoomStatus === "Renovate") {
+            return room;
+          }
+          const newStatus = roomContractStatusMap.get(room.RoomID) || "Available";
+          return { ...room, RoomStatus: newStatus };
+        });
+
+        setRooms(synchronizedRooms);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Unknown error");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchRooms();
+  }, [refreshTrigger]);
 
   useEffect(() => {
     async function fetchContractsForRoomLocal() {
@@ -159,9 +323,12 @@ export default function Dashboard() {
       setLoadingContracts(true);
       setRoomContracts([]);
       try {
-        const data = await api.fetchContractsForRoomAPI(selectedRoom.RoomID);
-        
-        // Sort contracts to show Active ones first on the client
+        const res = await fetch(`/api/Contract?roomId=${selectedRoom.RoomID}`);
+        if (!res.ok) {
+          throw new Error("Failed to fetch contracts for the room");
+        }
+        const data: Contract[] = await res.json();
+        // Sort contracts to show Active ones first
         data.sort((a, b) => {
           if (a.ContractStatus === "Active" && b.ContractStatus !== "Active") return -1;
           if (a.ContractStatus !== "Active" && b.ContractStatus === "Active") return 1;
@@ -175,6 +342,8 @@ export default function Dashboard() {
       }
     };
 
+    // Assign to outer scope function so handleSaveContract can call it
+    (fetchContractsForRoom as any) = fetchContractsForRoomLocal;
     fetchContractsForRoomLocal();
   }, [activeTab, selectedRoom]);
 
