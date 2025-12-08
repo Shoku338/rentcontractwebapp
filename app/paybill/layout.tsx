@@ -1,5 +1,5 @@
 import Toolbar from "@/components/Toolbar";
-import { getUserWithRole } from "@/app/api/User/route";
+import { getUserWithRole } from "@/lib/supabase/user";
 
 export default async function DashboardLayout({
   children,
