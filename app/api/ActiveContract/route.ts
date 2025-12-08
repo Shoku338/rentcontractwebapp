@@ -8,13 +8,16 @@ export async function GET(req: NextRequest) {
 
     // Fetch contracts that are either 'Active' or 'Reserved'
     const { data, error } = await supabase
-        .from("Contract")
-        .select("RoomID, ContractStatus")
+        .from('Contract')
+        .select('*') // Fetch all columns to get the full contract details
         .in("ContractStatus", ["Active", "Reserved"]);
 
     if (error) {
         console.error("Error fetching active/reserved contracts:", error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        return NextResponse.json({ 
+          error: error.message,
+          details: error.details,
+          hint: error.hint }, { status: 500 });
     }
 
     return NextResponse.json(data ?? []);

@@ -33,6 +33,12 @@ export default function Dashboard() {
     ContractStatus: "",
   });
 
+  // State for extra billing
+  const [extraCharge, setExtraCharge] = useState({
+    description: "",
+    amount: ""
+  });
+
   const toggleStatusFilter = (status: string) => {
     setStatusFilters(prev => {
       if (prev.includes(status)) {
@@ -214,11 +220,54 @@ export default function Dashboard() {
     }
   }
 
+  async function handleAddExtraCharge() {
+    if (!selectedRoom || !extraCharge.description || !extraCharge.amount) {
+      alert("Please provide a description and amount.");
+      return;
+    }
+
+    const activeContract = roomContracts.find(c => c.ContractStatus === 'Active');
+    if (!activeContract) {
+      alert("No active contract found for this room to add a charge to.");
+      return;
+    }
+
+    try {
+      // Find the bill for the current month for this contract
+      // This is a simplified approach; a real app might need a more robust date filter
+      const res = await fetch(`/api/Billing?ContractId=${activeContract.ContractId}`);
+      const bills = await res.json();
+      const thisMonthBill = bills[0]; // Assuming the first one is the one we want
+
+      if (!thisMonthBill) {
+        alert("No bill found for the current month to add charges to. Please generate the main bill first.");
+        return;
+      }
+
+      // Add the new charge as a BillingDetail
+      await fetch('/api/BillingDetails', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          BillingId: thisMonthBill.id,
+          ItemType: 'Extra',
+          Description: extraCharge.description,
+          Amount: Number(extraCharge.amount)
+        })
+      });
+
+      alert("Extra charge added successfully!");
+      setExtraCharge({ description: "", amount: "" });
+    } catch (err) {
+      alert(`Failed to add charge: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
+  }
+
   async function fetchContractsForRoom() { } // Placeholder for the actual function
 
   useEffect(() => {
     async function fetchContractsForRoomLocal() {
-      if (!["tenant", "contract"].includes(activeTab) || !selectedRoom) {
+      if (!["tenant", "contract", "billing"].includes(activeTab) || !selectedRoom) {
         return;
       }
 
@@ -335,7 +384,7 @@ export default function Dashboard() {
                   {floorRooms
                     .sort((a, b) => a.RoomID - b.RoomID)  // Add this line to sort rooms
                     .map((room) => (
-                      <button
+                      <button // Reverted to original button style
                         key={room.RoomID}
                         onClick={() => setSelectedRoom(room)}
                         className="flex flex-col items-center cursor-pointer hover:scale-105 transition"
@@ -345,7 +394,7 @@ export default function Dashboard() {
                             ? "bg-green-300"
                             : room.RoomStatus === "Unavailable" ? "bg-red-300"
                             : room.RoomStatus === "Reserved" ? "bg-yellow-300"
-                            : "bg-gray-300" // Fallback for 'Renovate' or other statuses
+                            : "bg-gray-300"
                             }`}
                         >
                           <span className="text-white text-3xl font-bold">💰</span>
@@ -376,7 +425,7 @@ export default function Dashboard() {
 
             {/* Tabs */}
             <div className="flex border-b mb-6 gap-4 overflow-x-auto">
-              {["details", "tenant", "payment", "contract"].map((tab) => (
+              {["details", "tenant", "billing", "contract"].map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
@@ -387,7 +436,7 @@ export default function Dashboard() {
                 >
                   {tab === "details" && "ข้อมูล"}
                   {tab === "tenant" && "ผู้เช่า"}
-                  {tab === "payment" && "ชำระเงิน"}
+                  {tab === "billing" && "บิลค่าใช้จ่าย"}
                   {tab === "contract" && "สัญญา"}
                 </button>
               ))}
@@ -463,27 +512,38 @@ export default function Dashboard() {
                 </div>
               )}
 
-              {activeTab === "payment" && (
+              {activeTab === "billing" && (
                 <div className="space-y-4">
-                  {selectedRoom.ContractId ? (
-                    <>
-                      <div className="bg-blue-50 p-4 rounded">
-                        <p className="text-sm text-gray-600"><strong>สัญญาปัจจุบัน:</strong> {selectedRoom.ContractId}</p>
-                        <p className="text-sm text-gray-600"><strong>ค่าเช่า:</strong> ฿ -</p>
-                        <p className="text-sm text-gray-600"><strong>วันครบกำหนด:</strong> -</p>
-                        <p className="text-sm text-gray-600"><strong>สถานะ:</strong> รอชำระ</p>
-                      </div>
-                      <div>
-                        <h3 className="font-semibold text-gray-700 mb-2">ประวัติการชำระเงิน</h3>
-                        <p className="text-sm text-gray-600">ยังไม่มีประวัติการชำระเงิน</p>
-                      </div>
-                      <button className="w-full bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">
-                        + เพิ่มค่าใช้เพิ่มเติม
-                      </button>
-                    </>
-                  ) : (
-                    <p className="text-gray-600">ไม่มีสัญญาในห้องนี้</p>
-                  )}
+                  <h3 className="font-semibold text-gray-800">เพิ่มค่าใช้จ่ายอื่นๆ</h3>
+                  <div className="p-4 border rounded-lg bg-gray-50 space-y-3">
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-1">รายละเอียด</label>
+                      <input
+                        type="text"
+                        placeholder="เช่น ค่าซ่อม, ค่าทำความสะอาด"
+                        value={extraCharge.description}
+                        onChange={(e) => setExtraCharge({ ...extraCharge, description: e.target.value })}
+                        className="w-full border rounded px-3 py-2"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-1">จำนวนเงิน (฿)</label>
+                      <input
+                        type="number"
+                        placeholder="0.00"
+                        value={extraCharge.amount}
+                        onChange={(e) => setExtraCharge({ ...extraCharge, amount: e.target.value })}
+                        className="w-full border rounded px-3 py-2"
+                      />
+                    </div>
+                    <button
+                      onClick={handleAddExtraCharge}
+                      className="w-full bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition"
+                    >
+                      + เพิ่มรายการ
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-500">หมายเหตุ: จะถูกเพิ่มเข้าไปในบิลของเดือนปัจจุบัน (ถ้ามี)</p>
                 </div>
               )}
 

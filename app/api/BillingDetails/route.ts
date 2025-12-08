@@ -22,7 +22,10 @@ export async function GET(req:NextRequest)
 
         if(error) {
             console.log('Error fetching billing details:', error);
-            return NextResponse.json({error: `Error fetching billing details: ${error.message}`}, {status: 500});
+            return NextResponse.json({
+              error: `Error fetching billing details: ${error.message}`,
+              details: error.details,
+              hint: error.hint }, {status: 500});
         }
         return NextResponse.json(billingDetails);
     } catch (err) {
@@ -40,23 +43,23 @@ export async function POST(req: NextRequest) {
     const supabase = createClient(cookieStore);
     const payload = await req.json();
 
-    // Basic validation
-    if (!payload.BillingId || !payload.ItemType || !payload.Amount) {
-      return NextResponse.json(
-        { error: 'Missing required fields: BillingId, ItemType, Amount' },
-        { status: 400 }
-      );
-    }
+    // The payload can be a single object or an array of objects.
+    // Supabase's .insert() method handles both cases seamlessly.
+    const recordsToInsert = Array.isArray(payload) ? payload : [payload];
 
     const { data, error } = await supabase
       .from('BillingDetails')
-      .insert([payload])
-      .select()
-      .single();
+      .insert(recordsToInsert)
+      .select();
 
     if (error) {
       console.error('Supabase error creating billing detail:', error);
-      return NextResponse.json({ error: error.message }, { status: 400 });
+      return NextResponse.json({
+        error: 'Failed to create billing details.', 
+        message: error.message,
+        details: error.details,
+        hint: error.hint
+      }, { status: 400 });
     }
 
     return NextResponse.json(data, { status: 201 });
@@ -91,7 +94,10 @@ export async function PATCH(req: NextRequest) {
 
     if (error) {
       console.error('Supabase error updating billing detail:', error);
-      return NextResponse.json({ error: error.message }, { status: 400 });
+      return NextResponse.json({ 
+        error: error.message,
+        details: error.details,
+        hint: error.hint }, { status: 400 });
     }
 
     return NextResponse.json(data);

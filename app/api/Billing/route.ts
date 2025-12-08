@@ -24,7 +24,10 @@ export async function GET(req:NextRequest)
 
         if(error) {
             console.log('Error fetching billings:', error);
-            return NextResponse.json({error: `Error fetching billings: ${error.message}`}, {status: 500});
+            return NextResponse.json({
+              error: `Error fetching billings: ${error.message}`,
+              details: error.details,
+              hint: error.hint }, {status: 500});
         }
         return NextResponse.json(billings);
     } catch (err) {
@@ -58,7 +61,10 @@ export async function POST(req: NextRequest) {
 
     if (error) {
       console.error('Supabase error creating bill:', error);
-      return NextResponse.json({ error: error.message }, { status: 400 });
+      return NextResponse.json({ 
+        error: error.message,
+        details: error.details,
+        hint: error.hint }, { status: 400 });
     }
 
     return NextResponse.json(data, { status: 201 });
@@ -98,7 +104,10 @@ export async function PATCH(req: NextRequest) {
 
     if (error) {
       console.error('Supabase error:', error);
-      return NextResponse.json({ error: error.message }, { status: 400 });
+      return NextResponse.json({ 
+        error: error.message,
+        details: error.details,
+        hint: error.hint }, { status: 400 });
     }
 
     return NextResponse.json(data);
