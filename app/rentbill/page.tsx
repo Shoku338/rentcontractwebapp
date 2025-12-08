@@ -31,6 +31,7 @@ export default function Page() {
   const [selectedBill, setSelectedBill] = useState<Bill | null>(null);
   const [billDetails, setBillDetails] = useState<BillDetail[]>([]);
   const [isDetailLoading, setIsDetailLoading] = useState(false);
+  const [isReverting, setIsReverting] = useState(false);
   // State for filters
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().slice(0, 7)); // "YYYY-MM"
   const [statusFilter, setStatusFilter] = useState("all"); // "all", "Paid", "Unpaid", "Overdue"
@@ -38,22 +39,24 @@ export default function Page() {
   const [amountSearch, setAmountSearch] = useState("");
 
   useEffect(() => {
-    const fetchBills = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const res = await fetch("/api/Billing");
-        if (!res.ok) throw new Error("Failed to fetch bills");
-        const data = await res.json();
-        setAllBills(Array.isArray(data) ? data : []);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "An unknown error occurred");
-      } finally {
-        setLoading(false);
-      }
-    };
+
     fetchBills();
   }, []);
+
+  const fetchBills = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const res = await fetch("/api/Billing");
+      if (!res.ok) throw new Error("Failed to fetch bills");
+      const data = await res.json();
+      setAllBills(Array.isArray(data) ? data : []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "An unknown error occurred");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const filteredAndGroupedBills = useMemo(() => {
     const filtered = allBills.filter(bill => {
@@ -101,6 +104,38 @@ export default function Page() {
       // Optionally set a modal-specific error state here
     } finally {
       setIsDetailLoading(false);
+    }
+  };
+
+  const handleRejectPayment = async () => {
+    if (!selectedBill) return;
+
+    if (!window.confirm(`Are you sure you want to reject this payment for room ${selectedBill.Contract.Room.RoomName}? This will change the status to Unpaid and remove the payment proof.`)) {
+      return;
+    }
+
+    setIsReverting(true);
+    try {
+      const res = await fetch('/api/Billing', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: selectedBill.id,
+          Status: 'Unpaid',
+          PaymentProofURL: null,
+          PaymentDate: null,
+        }),
+      });
+
+      if (!res.ok) throw new Error('Failed to reject payment.');
+
+      alert('Payment has been rejected. The bill is now marked as Unpaid.');
+      setSelectedBill(null); // Close the modal
+      fetchBills(); // Re-fetch all bills to update the UI
+    } catch (err) {
+      alert(`Error: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    } finally {
+      setIsReverting(false);
     }
   };
 
@@ -243,9 +278,9 @@ export default function Page() {
               <div className="border-t pt-4 mt-4">
                 <h4 className="font-semibold text-gray-800 mb-2">หลักฐานการชำระเงิน</h4>
                 <a href={selectedBill.PaymentProofURL} target="_blank" rel="noopener noreferrer">
-                  <img 
-                    src={selectedBill.PaymentProofURL} 
-                    alt="Payment Proof" 
+                  <img
+                    src={selectedBill.PaymentProofURL}
+                    alt="Payment Proof"
                     className="rounded-lg w-full h-auto object-contain max-h-60 border"
                   />
                 </a>
@@ -254,6 +289,20 @@ export default function Page() {
             <button onClick={() => setSelectedBill(null)} className="w-full mt-6 bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300">
               ปิด
             </button>
+            <div className="flex gap-2 mt-6">
+              {selectedBill.Status === 'Paid' && (
+                <button
+                  onClick={handleRejectPayment}
+                  disabled={isReverting}
+                  className="flex-1 bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 disabled:bg-gray-400"
+                >
+                  {isReverting ? 'Rejecting...' : 'Reject Payment'}
+                </button>
+              )}
+              <button onClick={() => setSelectedBill(null)} className="flex-1 bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300">
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}
