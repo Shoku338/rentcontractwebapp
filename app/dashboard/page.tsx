@@ -1,31 +1,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
-
-type Tenant = {
-  TenantID: number;
-  Firstname: string;
-  Lastname: string;
-  Phone: string;
-  Email: string;
-};
-
-type Contract = {
-  ContractId: string;
-  ContractStatus: "Active" | "Expired" | "Reserved";
-  StartDate: string;
-  EndDate: string;
-  MonthlyRent: number;
-  // This matches the 'tenants(*)' join from your API
-  tenants: Tenant;
-};
-
-type Room = {
-  RoomID: number;
-  RoomName: string;
-  ContractId: string | null;
-  RoomStatus: string;
-};
+import { Room, Contract } from "@/lib/types";
+import { getContractsByRoomId, getActiveAndReservedContracts, createContract } from "@/app/services/contractService";
+import { getAllRooms, updateRoomStatus as updateRoomStatusService } from "@/app/services/roomService";
+import { createTenant, deleteTenant } from "@/app/services/tenantService";
 
 export default function Dashboard() {
   const [selectedRoom, setSelectedRoom] = useState<Room | null>(null);
@@ -75,20 +54,13 @@ export default function Dashboard() {
     }
 
     try {
-      const res = await fetch("/api/Room", {
-        method: "PATCH", // or "PUT" depending on your API
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ RoomID: roomId, RoomStatus: newStatus }),
-      });
-
-      if (!res.ok) {
-        throw new Error("Failed to update room status");
-      }
-
+      await updateRoomStatusService(roomId, newStatus);
       // optionally read response and reconcile if backend returns canonical record
       triggerRefresh();
     } catch (err) {
       // rollback optimistic update on error
+      // Note: This rollback logic might not be perfect if the original status was different
+      // from what's in selectedRoom. A more robust solution might store the pre-update state.
       setRooms(prev => prev.map(r => r.RoomID === roomId ? { ...r, RoomStatus: selectedRoom?.RoomStatus ?? r.RoomStatus } : r));
       if (selectedRoom && selectedRoom.RoomID === roomId) {
         // keep the previous status in the selectedRoom UI
@@ -205,39 +177,22 @@ export default function Dashboard() {
         Phone: contractForm.Phone,
       };
 
-      const tenantRes = await fetch("/api/Tenant", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(tenantPayload),
-      });
-
-      if (!tenantRes.ok) {
-        const errBody = await tenantRes.json().catch(() => null);
-        throw new Error(errBody?.error ?? "Failed to create tenant");
-      }
-      const createdTenant = await tenantRes.json();
+      const createdTenant = await createTenant(tenantPayload);
 
       // 2) create contract using returned TenantID and selected room's RoomID
-      const contractRes = await fetch("/api/Contract", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          RoomID: selectedRoom!.RoomID,
-          TenantID: createdTenant.TenantID,
-          StartDate: contractForm.StartDate,
-          EndDate: contractForm.EndDate,
-          MonthlyRent: Number(contractForm.MonthlyRent || 0),
-        }),
-      });
-
-      if (!contractRes.ok) {
-        // rollback tenant (optional)
-        await fetch(`/api/Tenant?id=${createdTenant.TenantID}`, { method: "DELETE" }).catch(() => { });
-        const err = await contractRes.json().catch(() => null);
-        throw new Error(err?.error ?? "Failed to create contract");
+      try {
+        await createContract({
+            RoomID: selectedRoom!.RoomID,
+            TenantID: createdTenant.TenantID,
+            StartDate: contractForm.StartDate,
+            EndDate: contractForm.EndDate,
+            MonthlyRent: Number(contractForm.MonthlyRent || 0),
+        });
+      } catch (contractErr) {
+        await deleteTenant(createdTenant.TenantID);
+        // re-throw the original contract creation error
+        throw contractErr;
       }
-
-      const { contract, room } = await contractRes.json();
 
       // update local UI: close modal, reset form
       handleCloseContractModal();
@@ -275,22 +230,27 @@ export default function Dashboard() {
 
         // Fetch both rooms and active/reserved contracts in parallel
         const [roomsRes, contractsRes] = await Promise.all([
-          fetch("/api/Room"),
-          fetch("/api/ActiveContract"), // Use the new dedicated endpoint
+          getAllRooms(),
+          getActiveAndReservedContracts(),
         ]);
 
-        if (!roomsRes.ok) throw new Error("Failed to fetch rooms");
-        if (!contractsRes.ok) throw new Error("Failed to fetch active contracts");
+        const roomsData: Room[] = roomsRes;
+        setAllActiveContracts(contractsRes);
 
-        const roomsData: Room[] = await roomsRes.json();
-        const activeContracts: { RoomID: number; ContractStatus: string }[] = await contractsRes.json();
-        setAllActiveContracts(activeContracts);
-
-        // Create a map for quick lookup of room contract status
+        // Create a map for quick lookup of room contract status.
+        // An "Active" contract should always take precedence over "Reserved".
         const roomContractStatusMap = new Map<number, string>();
-        for (const contract of activeContracts) {
-          // If a room has any active or reserved contract, it is considered Unavailable.
-          roomContractStatusMap.set(contract.RoomID, "Unavailable");
+        // First, mark all reserved rooms.
+        for (const contract of contractsRes) {
+          if (contract.ContractStatus === 'Reserved') {
+            roomContractStatusMap.set(contract.RoomID, "Reserved");
+          }
+        }
+        // Then, mark all active rooms as Unavailable. This will correctly override a 'Reserved' status if a room has an active contract.
+        for (const contract of contractsRes) {
+          if (contract.ContractStatus === 'Active') {
+            roomContractStatusMap.set(contract.RoomID, "Unavailable");
+          }
         }
 
         // Synchronize room statuses based on contract data
@@ -323,11 +283,7 @@ export default function Dashboard() {
       setLoadingContracts(true);
       setRoomContracts([]);
       try {
-        const res = await fetch(`/api/Contract?roomId=${selectedRoom.RoomID}`);
-        if (!res.ok) {
-          throw new Error("Failed to fetch contracts for the room");
-        }
-        const data: Contract[] = await res.json();
+        const data = await getContractsByRoomId(selectedRoom.RoomID);
         // Sort contracts to show Active ones first
         data.sort((a, b) => {
           if (a.ContractStatus === "Active" && b.ContractStatus !== "Active") return -1;
@@ -490,9 +446,9 @@ export default function Dashboard() {
                         <div
                           className={`rounded-lg w-24 h-24 flex items-center justify-center mb-2 ${room.RoomStatus === "Available"
                             ? "bg-green-300"
-                            : room.RoomStatus === "Unavailable"
-                              ? "bg-red-300"
-                              : "bg-yellow-300"
+                            : room.RoomStatus === "Unavailable" ? "bg-red-300"
+                            : room.RoomStatus === "Reserved" ? "bg-yellow-300"
+                            : "bg-gray-300" // Fallback for 'Renovate' or other statuses
                             }`}
                         >
                           <span className="text-white text-3xl font-bold">💰</span>
@@ -557,7 +513,7 @@ export default function Dashboard() {
                         onChange={(e) => {
                           const newStatus = e.target.value;
                           // confirm change if you want
-                          if (!confirm(`เปลี่ยนสถานะเป็น "${newStatus}" สำหรับห้อง ${selectedRoom.RoomName}?`)) return;
+                          if (!window.confirm(`เปลี่ยนสถานะเป็น "${newStatus}" สำหรับห้อง ${selectedRoom.RoomName}?`)) return;
                           updateRoomStatus(selectedRoom.RoomID, newStatus);
                         }}
                         className="border rounded px-3 py-2"
