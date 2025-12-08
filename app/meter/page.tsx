@@ -1,75 +1,159 @@
+"use client";
+
+import { useState, useEffect } from "react";
+
 export default function MeterPage() {
+  const [year] = useState(2025);
+  const [month] = useState(10);
+
+  const [rooms, setRooms] = useState<any[]>([]);
+  const [readings, setReadings] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    loadRooms();
+    loadReadings();
+  }, []);
+
+  async function loadRooms() {
+    try {
+      const res = await fetch("/api/Room");
+      const data = await res.json();
+
+      const filtered = Array.isArray(data)
+        ? data.filter((r: any) => r.RoomStatus === "Unavailable")
+        : [];
+
+      setRooms(filtered);
+    } catch (err) {
+      console.error("Load rooms failed:", err);
+      setRooms([]);
+    }
+  }
+
+  async function loadReadings() {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/meter?year=${year}&month=${month}`);
+      const data = await res.json();
+
+      const list = Array.isArray(data) ? data : [];
+      setReadings(list);
+    } catch (err) {
+      console.error("Load readings failed:", err);
+      setReadings([]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function updateCurrent(roomID: number, value: number) {
+    const existing = readings.find((r: any) => r.roomid === roomID);
+    const curr = Number(value) || 0;
+
+    try {
+      if (existing) {
+        await fetch("/api/meter", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: existing.readingid,
+            CurrentValue: curr,
+          }),
+        });
+      } else {
+        await fetch("/api/meter", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            RoomID: roomID,
+            Year: year,
+            Month: month,
+            PreviousValue: 0,
+            CurrentValue: curr,
+          }),
+        });
+      }
+    } catch (err) {
+      console.error("Update failed:", err);
+    }
+
+    loadReadings();
+  }
+
+  function getReading(roomID: number) {
+    return readings.find((r) => r.roomid === roomID);
+  }
+
   return (
     <div className="min-h-screen bg-blue-50 p-8">
-      {/* Header */}
-      <div className="bg-white rounded shadow p-6 flex flex-col md:flex-row items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-blue-900 mb-4 md:mb-0">เลือกรอบจดมิเตอร์</h1>
-        <div className="flex gap-2 items-center">
-          <input
-            type="text"
-            value="ตุลาคม/2025"
-            className="border border-blue-300 rounded px-3 py-2 text-blue-900"
-            readOnly
-          />
-          <button className="bg-green-600 text-white px-4 py-2 rounded shadow hover:bg-green-700 transition">
-            ดาวน์โหลด Excel
-          </button>
-        </div>
+      <div className="bg-white rounded shadow p-6 flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-bold text-blue-900">เลือกรอบจดมิเตอร์</h1>
+
+        <input
+          type="text"
+          value={`${month}/${year}`}
+          readOnly
+          className="border border-blue-300 rounded px-3 py-2 text-blue-900"
+        />
       </div>
 
-      {/* Titles */}
-      <div className="flex gap-4 mb-6 rounded-full overflow-hidden ">
-        
+      <div className="flex gap-4 mb-6 rounded-full overflow-hidden">
         <h2 className="flex-1 bg-blue-600 text-white font-bold py-3 text-center rounded-r-full">
           🛠️ จดมิเตอร์ไฟฟ้า
         </h2>
       </div>
 
-      {/* Floor 1 */}
       <div className="bg-white rounded shadow p-6 mb-8">
         <h2 className="text-xl font-bold text-blue-900 mb-4">ชั้นที่ 1</h2>
+
         <table className="w-full border-collapse">
           <thead>
             <tr className="bg-blue-100 text-blue-900">
               <th className="p-2 border">ห้อง</th>
               <th className="p-2 border">สถานะห้อง</th>
-              <th className="p-2 border">อื่นๆ</th>
-              <th className="p-2 border">เลขมิเตอร์เดือน<br/>(กันยายน/2025)</th>
-              <th className="p-2 border">🛠️ เลขมิเตอร์เดือน<br/>(ตุลาคม/2025)</th>
-              <th className="p-2 border">หน่วยที่ใช้</th>
+              <th className="p-2 border">เลขเดือนก่อน</th>
+              <th className="p-2 border">เลขเดือนนี้</th>
+              <th className="p-2 border">หน่วยใช้</th>
             </tr>
           </thead>
+
           <tbody>
-            {[101, 102, 103].map((room, i) => (
-              <tr key={room} className="text-center">
-                <td className="border p-2">{room}</td>
-                <td className="border p-2">👤</td>
-                <td className="border p-2">≡</td>
-                <td className="border p-2">{i === 2 ? 6851 : 3765 + i}</td>
-                <td className="border p-2 bg-blue-100">
-                  <span className="mr-2">🛠️</span>
-                  <input
-                    type="number"
-                    value={0}
-                    className="bg-blue-50 border border-blue-300 rounded px-2 py-1 w-16 text-blue-900"
-                    readOnly
-                  />
-                </td>
-                <td className="border p-2">
-                  <span className="bg-red-500 text-white px-3 py-1 rounded">
-                    -{i === 2 ? 6851 : 3765 + i}
-                  </span>
-                </td>
-              </tr>
-            ))}
+            {rooms.map((room) => {
+              const meter = getReading(room.RoomID);
+
+              const prev = meter?.previousvalue ?? 0;
+              const curr = meter?.currentvalue ?? "";
+              const used = (Number(curr) || 0) - (Number(prev) || 0);
+
+              return (
+                <tr key={room.RoomID} className="text-center">
+                  <td className="border p-2">{room.RoomID}</td>
+                  <td className="border p-2">👤</td>
+
+                  <td className="border p-2">{prev}</td>
+
+                  <td className="border p-2 bg-blue-100">
+                    <input
+                      type="number"
+                      defaultValue={curr}
+                      className="bg-blue-50 border border-blue-300 rounded px-2 py-1 w-24 text-blue-900"
+                      onBlur={(e) =>
+                        updateCurrent(room.RoomID, Number(e.target.value || 0))
+                      }
+                    />
+                  </td>
+
+                  <td className="border p-2">
+                    <span className="bg-red-500 text-white px-3 py-1 rounded">
+                      {used}
+                    </span>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
-      </div>
-
-      {/* Floor 2 (example) */}
-      <div className="bg-white rounded shadow p-6 mb-8">
-        <h2 className="text-xl font-bold text-blue-900 mb-4">ชั้นที่ 2</h2>
-        {/* Repeat table structure for other floors */}
       </div>
     </div>
   );
