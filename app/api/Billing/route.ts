@@ -8,19 +8,28 @@ export async function GET(req:NextRequest)
     try {
         const cookieStore = await cookies();
         const supabase = createClient(cookieStore);
+        const { searchParams } = new URL(req.url);
+        const status = searchParams.get('Status');
 
-        // Join Billing with Contract, and then Contract with tenants and Room
-        // This gives you all the related info in one query.
-        const {data: billings, error} = await supabase
+        let query = supabase
             .from('Billing')
             .select(`
                 *,
                 Contract (
                     *,
                     tenants ( Firstname, Lastname ),
-                    Room ( RoomName )
+                    Room ( RoomName, RoomID )
                 )
             `);
+        
+        // If a status is provided in the URL, filter by it
+        if (status) {
+            query = query.eq('Status', status);
+        }
+        
+        // Join Billing with Contract, and then Contract with tenants and Room
+        // This gives you all the related info in one query.
+        const {data: billings, error} = await query;
 
         if(error) {
             console.log('Error fetching billings:', error);
@@ -83,23 +92,24 @@ export async function PATCH(req: NextRequest) {
   try {
     const cookieStore = await cookies();
     const supabase = createClient(cookieStore);
-    // Updated to match your new schema: `id` and `Status`
-    const { id, Status } = await req.json();
+    // Make it more flexible to accept any update data
+    const { id, ...updateData } = await req.json();
 
-    if (!id || !Status) {
+    if (!id) {
       return NextResponse.json(
-        { error: 'Missing id or Status' },
+        { error: 'Missing bill id to update' },
         { status: 400 }
       );
     }
 
+    // If status is being updated to 'Paid', ensure PaymentDate is also set
+    if (updateData.Status === 'Paid' && !updateData.PaymentDate) {
+      updateData.PaymentDate = new Date().toISOString();
+    }
+
     const { data, error } = await supabase
       .from('Billing')
-      .update({ 
-        Status: Status,
-        // If the status is 'Paid', also set the payment date
-        ...(Status === 'Paid' && { PaymentDate: new Date().toISOString() })
-      })
+      .update(updateData)
       .eq('id', id)
       .select()
       .single();

@@ -1,6 +1,8 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState, useEffect, useMemo } from "react";
+import { createClient } from "@/lib/supabase/client";
 
 // Define a type for the processed bill group
 type UnpaidBillGroup = {
@@ -24,17 +26,20 @@ export default function PayBill() {
   const [error, setError] = useState<string | null>(null);
   const [selectedBillGroup, setSelectedBillGroup] = useState<UnpaidBillGroup | null>(null);
   const [billDetails, setBillDetails] = useState<BillDetail[]>([]);
+  const [paymentProofFile, setPaymentProofFile] = useState<File | null>(null);
+  const [isConfirmingPayment, setIsConfirmingPayment] = useState(false);
+  const router = useRouter();
 
   useEffect(() => {
     const fetchBills = async () => {
       try {
         setLoading(true);
         setError(null);
-        const res = await fetch("/api/Billing");
+        // More efficient: Request only unpaid bills from the API
+        const res = await fetch("/api/Billing?Status=Unpaid");
         if (!res.ok) throw new Error("Failed to fetch billing data");
 
-        const allBills = await res.json();
-        const unpaid = allBills.filter((bill: any) => bill.Status === 'Unpaid');
+        const unpaid = await res.json();
 
         const billsByRoom = unpaid.reduce((acc: Record<string, UnpaidBillGroup>, bill: any) => {
           const roomName = bill.Contract?.Room?.RoomName ?? 'N/A';
@@ -80,6 +85,64 @@ export default function PayBill() {
       } catch (e) {
         setBillDetails([]);
       }
+    }
+  };
+
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (event.target.files && event.target.files.length > 0) {
+      setPaymentProofFile(event.target.files[0]);
+    }
+  };
+
+  const handleConfirmPayment = async () => {
+    if (!selectedBillGroup || !paymentProofFile) {
+      alert("กรุณาแนบสลิปการชำระเงิน");
+      return;
+    }
+
+    setIsConfirmingPayment(true);
+    const supabase = createClient();
+
+    try {
+      // 1. Upload the image to Supabase Storage
+      const fileExt = paymentProofFile.name.split('.').pop();
+      const fileName = `${selectedBillGroup.contractId}-${Date.now()}.${fileExt}`;
+      const filePath = `public/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('payment_proofs')
+        .upload(filePath, paymentProofFile);
+
+      if (uploadError) throw uploadError;
+
+      // 2. Get the public URL of the uploaded file
+      const { data: urlData } = supabase.storage
+        .from('payment_proofs')
+        .getPublicUrl(filePath);
+
+      const paymentProofURL = urlData.publicUrl;
+
+      // 3. Update all unpaid bills for this group to 'Paid'
+      const updatePromises = selectedBillGroup.bills.map(bill => 
+        fetch('/api/Billing', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: bill.id,
+            Status: 'Paid',
+            PaymentProofURL: paymentProofURL,
+          }),
+        })
+      );
+      await Promise.all(updatePromises);
+
+      alert("ยืนยันการชำระเงินสำเร็จ!");
+      // Navigate to the rentbill page to see the updated status
+      router.push('/rentbill');
+    } catch (err) {
+      alert(`เกิดข้อผิดพลาด: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    } finally {
+      setIsConfirmingPayment(false);
     }
   };
 
@@ -186,9 +249,24 @@ export default function PayBill() {
                 </span>
               </div>
             </div>
+            <div className="border-t pt-4">
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
+                แนบสลิปหลักฐานการชำระเงิน
+              </label>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleFileChange}
+                className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+              />
+            </div>
             <div className="mt-6 flex gap-2">
-               <button className="flex-1 bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">
-                ยืนยันชำระเงิน
+               <button 
+                onClick={handleConfirmPayment}
+                disabled={!paymentProofFile || isConfirmingPayment}
+                className="flex-1 bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+               >
+                {isConfirmingPayment ? 'กำลังดำเนินการ...' : 'ยืนยันชำระเงิน'}
               </button>
               <button onClick={() => setSelectedBillGroup(null)} className="flex-1 bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300">
                 ปิด

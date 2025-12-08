@@ -7,6 +7,7 @@ type Bill = {
   id: number;
   GrandTotal: number;
   Status: 'Paid' | 'Unpaid' | 'Overdue';
+  PaymentProofURL?: string; // Add optional payment proof URL
   BillingMonth: string; // e.g., "2025-12-01"
   Contract: {
     Room: {
@@ -16,11 +17,20 @@ type Bill = {
   };
 };
 
+type BillDetail = {
+  id: number;
+  Description: string;
+  Amount: number;
+};
+
 export default function Page() {
   const [allBills, setAllBills] = useState<Bill[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const [selectedBill, setSelectedBill] = useState<Bill | null>(null);
+  const [billDetails, setBillDetails] = useState<BillDetail[]>([]);
+  const [isDetailLoading, setIsDetailLoading] = useState(false);
   // State for filters
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().slice(0, 7)); // "YYYY-MM"
   const [statusFilter, setStatusFilter] = useState("all"); // "all", "Paid", "Unpaid", "Overdue"
@@ -74,6 +84,23 @@ export default function Page() {
       case 'Unpaid': return 'bg-yellow-100';
       case 'Overdue': return 'bg-red-100';
       default: return 'bg-gray-100';
+    }
+  };
+
+  const handleShowDetails = async (bill: Bill) => {
+    setSelectedBill(bill);
+    setIsDetailLoading(true);
+    setBillDetails([]);
+    try {
+      const res = await fetch(`/api/BillingDetails?BillingId=${bill.id}`);
+      if (!res.ok) throw new Error('Failed to fetch bill details');
+      const details = await res.json();
+      setBillDetails(Array.isArray(details) ? details : []);
+    } catch (err) {
+      console.error(err);
+      // Optionally set a modal-specific error state here
+    } finally {
+      setIsDetailLoading(false);
     }
   };
 
@@ -153,23 +180,24 @@ export default function Page() {
               {filteredAndGroupedBills[floor]
                 .sort((a, b) => a.Contract.Room.RoomID - b.Contract.Room.RoomID)
                 .map((bill) => (
-                  <div
+                  <button
                     key={bill.id}
-                    className={`flex flex-col items-center rounded shadow p-4 ${getStatusColor(bill.Status)}`}
+                    onClick={() => handleShowDetails(bill)}
+                    className={`flex flex-col items-center text-left w-full rounded shadow p-4 transition hover:shadow-lg hover:scale-105 ${getStatusColor(bill.Status)}`}
                   >
                     <div className="text-lg font-bold text-blue-900 mb-2">
                       {bill.Contract.Room.RoomName}
                     </div>
-                    <div className="bg-white rounded p-6 mb-3 shadow-inner">
+                    <div className="bg-white rounded p-6 mb-3 shadow-inner self-center">
                       💌
                     </div>
                     <div className="text-gray-800 font-bold text-lg">
                       {bill.GrandTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} บาท
                     </div>
-                    <div className="text-sm text-gray-600 mt-1">
+                    <div className="text-sm text-gray-600 mt-1 capitalize">
                       สถานะ: {bill.Status}
                     </div>
-                  </div>
+                  </button>
                 )
                 )}
             </div>
@@ -182,7 +210,53 @@ export default function Page() {
           <p>ไม่พบข้อมูลบิลสำหรับเดือนที่เลือก</p>
         </div>
       )}
+
+      {/* Bill Details Modal */}
+      {selectedBill && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-lg p-6 w-full max-w-md">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xl font-bold">รายละเอียดบิล - ห้อง {selectedBill.Contract.Room.RoomName}</h3>
+              <button onClick={() => setSelectedBill(null)} className="text-gray-500 hover:text-gray-800 text-2xl">&times;</button>
+            </div>
+            <div className="border-t pt-4">
+              {isDetailLoading ? (
+                <p className="text-center text-gray-500">Loading details...</p>
+              ) : (
+                <>
+                  <ul className="space-y-2 mb-4">
+                    {billDetails.map((detail) => (
+                      <li key={detail.id} className="flex justify-between items-center text-gray-700">
+                        <span>{detail.Description}</span>
+                        <span className="font-mono">{detail.Amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="border-t pt-4 flex justify-between items-center font-bold text-lg">
+                    <span>ยอดรวม</span>
+                    <span>{selectedBill.GrandTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} บาท</span>
+                  </div>
+                </>
+              )}
+            </div>
+            {selectedBill.Status === 'Paid' && selectedBill.PaymentProofURL && (
+              <div className="border-t pt-4 mt-4">
+                <h4 className="font-semibold text-gray-800 mb-2">หลักฐานการชำระเงิน</h4>
+                <a href={selectedBill.PaymentProofURL} target="_blank" rel="noopener noreferrer">
+                  <img 
+                    src={selectedBill.PaymentProofURL} 
+                    alt="Payment Proof" 
+                    className="rounded-lg w-full h-auto object-contain max-h-60 border"
+                  />
+                </a>
+              </div>
+            )}
+            <button onClick={() => setSelectedBill(null)} className="w-full mt-6 bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300">
+              ปิด
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
-
