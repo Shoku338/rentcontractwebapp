@@ -2,16 +2,18 @@
 
 import { useState, useEffect } from "react";
 import { Room, Contract } from "@/lib/types";
-import { getContractsByRoomId, getActiveAndReservedContracts, createContract } from "@/app/services/contractService";
-import { getAllRooms, updateRoomStatus as updateRoomStatusService } from "@/app/services/roomService";
+import { getContractsByRoomId, createContract } from "@/app/services/contractService";
+import { updateRoomStatus as updateRoomStatusService } from "@/app/services/roomService";
 import { createTenant, deleteTenant } from "@/app/services/tenantService";
+import { useDashboardData } from "@/app/hooks/useDashboardData";
+import { DashboardStats } from "@/components/DashboardStats";
+import { RoomFilters } from "@/components/RoomFilters";
 
 export default function Dashboard() {
+  const { rooms, setRooms, allActiveContracts, loading, error, triggerRefresh } = useDashboardData();
+
   const [selectedRoom, setSelectedRoom] = useState<Room | null>(null);
   const [activeTab, setActiveTab] = useState("details");
-  const [rooms, setRooms] = useState<Room[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [showContractModal, setShowContractModal] = useState(false);
   const [savingContract, setSavingContract] = useState(false);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
@@ -19,9 +21,7 @@ export default function Dashboard() {
   const [loadingContracts, setLoadingContracts] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [editingContract, setEditingContract] = useState<Contract | null>(null);
-  const [allActiveContracts, setAllActiveContracts] = useState<{ RoomID: number; ContractStatus: string }[]>([]);
   const [statusFilters, setStatusFilters] = useState<string[]>([]);
-  const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [contractForm, setContractForm] = useState({
     TenantName: "",
     TenantSurname: "",
@@ -32,10 +32,6 @@ export default function Dashboard() {
     MonthlyRent: "",
     ContractStatus: "",
   });
-
-  const triggerRefresh = () => {
-    setRefreshTrigger(prev => prev + 1);
-  };
 
   const toggleStatusFilter = (status: string) => {
     setStatusFilters(prev => {
@@ -221,60 +217,6 @@ export default function Dashboard() {
   async function fetchContractsForRoom() { } // Placeholder for the actual function
 
   useEffect(() => {
-    const fetchRooms = async () => {
-      try {
-        setLoading(true);
-        // First, trigger the backend to synchronize all statuses
-        // The file is at /dashboard/route.ts, so the endpoint is /dashboard
-        await fetch("/dashboard", { method: "POST" });
-
-        // Fetch both rooms and active/reserved contracts in parallel
-        const [roomsRes, contractsRes] = await Promise.all([
-          getAllRooms(),
-          getActiveAndReservedContracts(),
-        ]);
-
-        const roomsData: Room[] = roomsRes;
-        setAllActiveContracts(contractsRes);
-
-        // Create a map for quick lookup of room contract status.
-        // An "Active" contract should always take precedence over "Reserved".
-        const roomContractStatusMap = new Map<number, string>();
-        // First, mark all reserved rooms.
-        for (const contract of contractsRes) {
-          if (contract.ContractStatus === 'Reserved') {
-            roomContractStatusMap.set(contract.RoomID, "Reserved");
-          }
-        }
-        // Then, mark all active rooms as Unavailable. This will correctly override a 'Reserved' status if a room has an active contract.
-        for (const contract of contractsRes) {
-          if (contract.ContractStatus === 'Active') {
-            roomContractStatusMap.set(contract.RoomID, "Unavailable");
-          }
-        }
-
-        // Synchronize room statuses based on contract data
-        const synchronizedRooms = roomsData.map(room => {
-          // Do not update rooms under renovation
-          if (room.RoomStatus === "Renovate") {
-            return room;
-          }
-          const newStatus = roomContractStatusMap.get(room.RoomID) || "Available";
-          return { ...room, RoomStatus: newStatus };
-        });
-
-        setRooms(synchronizedRooms);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Unknown error");
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchRooms();
-  }, [refreshTrigger]);
-
-  useEffect(() => {
     async function fetchContractsForRoomLocal() {
       if (!["tenant", "contract"].includes(activeTab) || !selectedRoom) {
         return;
@@ -363,59 +305,14 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-gray-100 p-8">
-      {/* Top Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-        <div className="bg-white rounded shadow p-6 flex flex-col items-center">
-          <span className="text-2xl font-bold text-green-600" title={`${rooms.filter(r => r.RoomStatus === "Unavailable").length} / ${rooms.length} rooms`}>
-            {rooms.length > 0 ? Math.round((rooms.filter(r => r.RoomStatus === "Unavailable").length / rooms.length) * 100) : 0}%
-          </span>
-          <span className="text-gray-600 mt-2">อัตราการเข้าพัก</span>
-        </div>
-        <div className="bg-white rounded shadow p-6 flex flex-col items-center">
-          <span className="text-2xl font-bold text-yellow-600">
-            {new Set(allActiveContracts.filter(c => c.ContractStatus === "Reserved").map(c => c.RoomID)).size} ห้อง
-          </span>
-          <span className="text-gray-600 mt-2">ห้องจอง</span>
-        </div>
-        <div className="bg-white rounded shadow p-6 flex flex-col items-center">
-          <span className="text-2xl font-bold text-red-600">0 ห้อง</span>
-          <span className="text-gray-600 mt-2">ค้างชำระ</span>
-        </div>
-        <div className="bg-white rounded shadow p-6 flex flex-col items-center">
-          <span className="text-2xl font-bold text-purple-600">
-            {rooms.filter(r => r.RoomStatus === "Available").length} ห้อง
-          </span>
-          <span className="text-gray-600 mt-2">ห้องว่าง</span>
-        </div>
-      </div>
+      <DashboardStats rooms={rooms} allActiveContracts={allActiveContracts} />
 
-      {/* Search Bar */}
-      <div className="bg-white rounded shadow p-4 mb-6 flex flex-col md:flex-row items-center gap-4">
-        <div className="flex-grow">
-          <input
-            type="text"
-            placeholder="ค้นหาห้องด้วยชื่อ..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500"
-          />
-        </div>
-        <div className="flex flex-wrap gap-2 justify-center">
-          {["Available", "Reserved", "Unavailable", "Renovate"].map(status => (
-            <button
-              key={status}
-              onClick={() => toggleStatusFilter(status)}
-              className={`px-3 py-1 text-sm font-semibold rounded-full border transition whitespace-nowrap ${statusFilters.includes(status)
-                  ? "bg-blue-600 text-white border-blue-600"
-                  : "bg-white text-gray-700 border-gray-300 hover:bg-gray-100"
-                }`}
-            >
-              {status}
-            </button>
-          ))}
-        </div>
-
-      </div>
+      <RoomFilters
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        statusFilters={statusFilters}
+        onStatusToggle={toggleStatusFilter}
+      />
 
       {/* Building List - Group by Floor */}
       <div className="space-y-8">
