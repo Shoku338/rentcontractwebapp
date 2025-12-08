@@ -174,8 +174,8 @@ export default function MeterPage() {
     const total = rentDetail.Amount + electricityDetail.Amount;
 
     // 1. Create the main Billing record
-    const billingMonthDate = new Date(year, month - 1, 1);
-    const dueDate = new Date(year, month, 5); // Due on the 5th of next month
+    const billingMonthDate = new Date(year, month - 1, 2); 
+    const dueDate = new Date(year, month, 5); 
     
     const billRes = await fetch('/api/Billing', {
       method: 'POST',
@@ -197,6 +197,41 @@ export default function MeterPage() {
       throw new Error(`Failed to create bill for Room ${roomID}: ${errorBody.error}`);
     }
     const newBill = await billRes.json();
+
+    // --- FIX: Prevent duplicate BillingDetails ---
+    // After upserting the bill, check if it already has details.
+    const checkDetailsRes = await fetch(`/api/BillingDetails?BillingId=${newBill.id}`);
+    if (!checkDetailsRes.ok) throw new Error(`Failed to check details for bill ${newBill.id}`);
+    
+    const existingDetails = await checkDetailsRes.json();
+    if (Array.isArray(existingDetails) && existingDetails.length > 0) {
+      console.log(`Bill ${newBill.id} already has details. Skipping detail creation.`);
+      // --- FIX: Instead of returning, UPDATE the existing details ---
+      const elecDetailToUpdate = existingDetails.find(d => d.ItemType === 'Electricity');
+      if (elecDetailToUpdate) {
+        // Update the electricity detail
+        await fetch('/api/BillingDetails', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: elecDetailToUpdate.id,
+            Amount: electricityCost,
+            Description: electricityDetail.Description,
+          }),
+        });
+        // Update the main bill's total
+        await fetch('/api/Billing', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: newBill.id,
+            GrandTotal: total,
+            TotalPreTax: total,
+          }),
+        });
+      }
+      return; // Exit after updating
+    }
 
     // 2. Create BillingDetails records
     const detailsPayload = [
@@ -274,16 +309,15 @@ export default function MeterPage() {
 
   const handleSaveAll = async () => {
     setLoading(true);
-    // We will process all rooms with active contracts, not just drafts.
-    const roomsToBill = rooms.filter(room => 
-      activeContracts.some(c => c.RoomID === room.RoomID)
-    );
+    // FIX: Only process rooms that have draft readings.
+    const draftEntries = Object.entries(draftReadings);
 
     try {
-      for (const room of roomsToBill) {
-        const roomId = room.RoomID;
-        // Use draft value if it exists, otherwise default to 0.
-        const currentValue = draftReadings[roomId] ?? 0;
+      for (const [roomIdStr, currentValue] of draftEntries) {
+        const roomId = Number(roomIdStr);
+
+        // Ensure the room has an active contract before proceeding
+        if (!activeContracts.some(c => c.RoomID === roomId)) continue;
 
         // Step 1: Save the meter reading (create if not exists) and get the record.
         const meterReadingRecord = await saveReading(roomId, currentValue);
@@ -294,8 +328,7 @@ export default function MeterPage() {
         }
       }
 
-      // The alert now reflects the number of rooms with active contracts processed.
-      alert(`บันทึกข้อมูลและสร้างบิลสำหรับ ${roomsToBill.length} ห้องสำเร็จ!`);
+      alert(`บันทึกข้อมูลและสร้างบิลสำหรับ ${draftEntries.length} ห้องสำเร็จ!`);
       setDraftReadings({}); // Clear drafts on success
       loadAllReadings(); // Reload all data to be sure
     } catch (error) {

@@ -55,9 +55,11 @@ export async function POST(req: NextRequest) {
 
     const { data, error } = await supabase
       .from('Billing')
-      .insert([payload]) // Supabase expects an array for insert
+      .upsert(payload, { 
+        onConflict: 'ContractId, BillingMonth' // Use the unique constraint
+      })
       .select()
-      .single(); // Assuming we are inserting one record and want it back
+      .single();
 
     if (error) {
       console.error('Supabase error creating bill:', error);
