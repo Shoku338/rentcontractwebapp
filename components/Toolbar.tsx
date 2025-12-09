@@ -2,15 +2,24 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-const tools = [
+const baseTools = [
   { label: "ผังห้อง", href: "/dashboard", icon: "🏢" },
   { label: "จดมิเตอร์", href: "/meter", icon: "⏱️" },
   { label: "บิลค่าเช่า", href: "/rentbill", icon: "📄" },
   { label: "จ่ายบิล", href: "/paybill", icon: "💸" },
 ];
+const adminTool = { label: "จัดการผู้ใช้", href: "/admin/users", icon: "👥" };
 
-export default function Toolbar() {
+interface ToolbarProps {
+  userRole?: string;
+}
+
+export default function Toolbar({ userRole }: ToolbarProps) {
   const pathname = usePathname();
+
+  const tools = userRole === "admin" 
+    ? [...baseTools, adminTool] 
+    : baseTools;
 
   return (
     <nav className="bg-gray-800 px-2 py-2 flex gap-2 overflow-x-auto justify-center">

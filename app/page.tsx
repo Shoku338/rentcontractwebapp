@@ -11,7 +11,7 @@ export default function Home() {
   const [error, setError] = useState("");
 
   async function handleLogin() {
-    // Clear old errors
+    // Clear previous errors
     setError("");
 
     // Frontend validation
@@ -24,6 +24,7 @@ export default function Home() {
       const res = await fetch("/api/login", {
         method: "POST",
         body: JSON.stringify({ email, password }),
+        headers: { "Content-Type": "application/json" },
       });
 
       const data = await res.json();
@@ -33,10 +34,15 @@ export default function Home() {
         return;
       }
 
+      // Dispatch event so Navbar updates
+      window.dispatchEvent(new Event("userLoggedIn"));
+
+      // Redirect to dashboard
       router.push("/dashboard");
 
     } catch (err) {
       setError("ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้");
+      console.error(err);
     }
   }
 
