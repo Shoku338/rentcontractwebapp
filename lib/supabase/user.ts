@@ -1,9 +1,19 @@
-import { createClient } from "@/lib/supabase/server";
-import { cookies } from "next/headers";
+import { createServerClient } from '@supabase/ssr'
+import { cookies } from 'next/headers'
 
 export async function getUserWithRole() {
-  const cookieStore = cookies();
-  const supabase = createClient(cookieStore);
+  const cookieStore = cookies(); // This can be async in some contexts
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          return cookieStore.get(name)?.value
+        },
+      },
+    }
+  );
 
   const {
     data: { user },
@@ -13,7 +23,17 @@ export async function getUserWithRole() {
     return null;
   }
 
-  const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+  // Assuming you have a 'profiles' table with a 'role' column
+  const { data: profile, error } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', user.id)
+    .single();
 
-  return { ...user, role: profile?.role || "user" };
+  if (error) {
+    console.error('Error fetching user role:', error);
+    return { ...user, role: null };
+  }
+
+  return { ...user, role: profile?.role || null };
 }
