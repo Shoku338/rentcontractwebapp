@@ -2,7 +2,7 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 
 export async function getUserWithRole() {
-  const cookieStore = cookies(); // This can be async in some contexts
+  const cookieStore = await cookies(); // This can be async in some contexts
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
