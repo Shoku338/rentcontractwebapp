@@ -223,9 +223,11 @@ export default function Page() {
                     <div className="text-lg font-bold text-blue-900 mb-2">
                       {bill.Contract.Room.RoomName}
                     </div>
-                    <div className="bg-white rounded p-6 mb-3 shadow-inner self-center">
-                      💌
-                    </div>
+                    <img
+                      src="billing.png" // The correct path for files in /public folder
+                      alt="Contract Icon"
+                      className="w-12 h-12" // Adjust the w-12 h-12 classes for desired size
+                    />
                     <div className="text-gray-800 font-bold text-lg">
                       {bill.GrandTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} บาท
                     </div>

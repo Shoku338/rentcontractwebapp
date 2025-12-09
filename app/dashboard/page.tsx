@@ -397,7 +397,11 @@ export default function Dashboard() {
                             : "bg-gray-300"
                             }`}
                         >
-                          <span className="text-white text-3xl font-bold">💰</span>
+                          <img 
+                                src="Condo.png" // The correct path for files in /public folder
+                                alt="Contract Icon" 
+                                className="w-12 h-12" // Adjust the w-12 h-12 classes for desired size
+                            />
                         </div>
                         <span className="font-bold">{room.RoomName}</span>
                         <span className="text-xs text-gray-500">{room.RoomStatus}</span>
