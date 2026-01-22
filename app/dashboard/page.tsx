@@ -367,7 +367,7 @@ export default function Dashboard() {
       <div className="space-y-8">
         <div className="bg-white rounded shadow p-6">
           <div className="flex items-center justify-between mb-4">
-            <h1 className="text-2xl font-bold mb-6 text-blue-900">อาคาร 1</h1>
+            <h1 className="text-2xl font-bold mb-6 text-blue-900">Saguan Sap Mansion</h1>
             {/* <button className="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 transition">
               จัดการตึก
             </button> */}
