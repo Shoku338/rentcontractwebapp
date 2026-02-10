@@ -390,11 +390,11 @@ export default function Dashboard() {
                         className="flex flex-col items-center cursor-pointer hover:scale-105 transition"
                       >
                         <div
-                          className={`rounded-lg w-24 h-24 flex items-center justify-center mb-2 ${room.RoomStatus === "Available"
-                            ? "bg-green-300"
-                            : room.RoomStatus === "Unavailable" ? "bg-red-300"
-                            : room.RoomStatus === "Reserved" ? "bg-yellow-300"
-                            : "bg-gray-300"
+                          className={`rounded-lg w-24 h-24 flex items-center justify-center mb-2 ${
+                            room.RoomStatus === "Available" ? "bg-red-300"
+                            : room.RoomStatus === "Unavailable" ? "bg-green-300"
+                            : "bg-yellow-300"
+
                             }`}
                         >
                           <img 

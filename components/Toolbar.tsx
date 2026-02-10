@@ -7,6 +7,7 @@ const baseTools = [
   { label: "จดมิเตอร์", href: "/meter", icon: "⏱️" },
   { label: "บิลค่าเช่า", href: "/rentbill", icon: "📄" },
   { label: "จ่ายบิล", href: "/paybill", icon: "💸" },
+  { label: "setting", href: "/setting", icon: "⚙️" },
 ];
 const adminTool = { label: "จัดการผู้ใช้", href: "/admin/users", icon: "👥" };
 
