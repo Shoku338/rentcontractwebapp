@@ -13,7 +13,7 @@ export default function Dashboard() {
   const { rooms, setRooms, allActiveContracts, loading, error, triggerRefresh } = useDashboardData();
 
   const [selectedRoom, setSelectedRoom] = useState<Room | null>(null);
-  const [activeTab, setActiveTab] = useState("details");
+  const [activeTab, setActiveTab] = useState("tenant"); // default to tenant tab
   const [showContractModal, setShowContractModal] = useState(false);
   const [savingContract, setSavingContract] = useState(false);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
@@ -421,15 +421,16 @@ export default function Dashboard() {
               <h2 className="text-2xl font-bold">ห้อง {selectedRoom.RoomName}</h2>
               <button
                 onClick={() => setSelectedRoom(null)}
-                className="text-gray-500 hover:text-gray-700 text-2xl"
+                className=" text-red-600 hover:text-gray-500 transition-colors text-3xl font-light"
+                aria-label="Close"
               >
-                ✕
+              &times;
               </button>
             </div>
 
             {/* Tabs */}
             <div className="flex border-b mb-6 gap-4 overflow-x-auto">
-              {["details", "tenant", "billing", "contract"].map((tab) => (
+              {[ "tenant", "billing", "contract"].map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
@@ -438,7 +439,6 @@ export default function Dashboard() {
                     : "text-gray-600 hover:text-gray-800"
                     }`}
                 >
-                  {tab === "details" && "ข้อมูล"}
                   {tab === "tenant" && "ผู้เช่า"}
                   {tab === "billing" && "บิลค่าใช้จ่าย"}
                   {tab === "contract" && "สัญญา"}
@@ -448,40 +448,7 @@ export default function Dashboard() {
 
             {/* Tab Content */}
             <div className="mb-6">
-              {activeTab === "details" && (
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700">ชื่อห้อง</label>
-                    <p className="text-gray-600">{selectedRoom.RoomName}</p>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700">สถานะ</label>
-                    <div className="flex items-center gap-3">
-                      <select
-                        value={selectedRoom.RoomStatus}
-                        onChange={(e) => {
-                          const newStatus = e.target.value;
-                          // confirm change if you want
-                          if (!window.confirm(`เปลี่ยนสถานะเป็น "${newStatus}" สำหรับห้อง ${selectedRoom.RoomName}?`)) return;
-                          updateRoomStatus(selectedRoom.RoomID, newStatus);
-                        }}
-                        className="border rounded px-3 py-2"
-                      >
-                        <option value="Available">Available</option>
-                        <option value="Unavailable">Unavailable</option>
-                        <option value="Renovate">Renovate</option>
-                      </select>
-                    </div>
-                    <p className="text-sm text-gray-500 mt-1">Current: {selectedRoom.RoomStatus}</p>
-                  </div>
-                  {/* <div>
-                    <label className="block text-sm font-semibold text-gray-700">สัญญา</label>
-                    <p className="text-gray-600">{selectedRoom.ContractId || "ไม่มี"}</p>
-                  </div>*/}
-
-                </div>
-              )}
+              
 
               {activeTab === "tenant" && (
                 <div className="space-y-4">
